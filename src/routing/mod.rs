@@ -1,10 +1,14 @@
-//! Runtime snapshot and host lookup (minimal version, completed in P4).
+//! Runtime snapshot: host table and per-route services.
+pub mod host;
+pub mod stack;
+pub mod table;
+
+pub use table::HostTable;
+
 use crate::config::{Config, Limits, RouteCfg};
-use crate::prelude::{Req, Resp, RouteSvc, simple};
+use crate::prelude::{Req, RouteSvc};
 use crate::server::Shared;
 use ipnet::IpNet;
-use std::collections::HashMap;
-use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -22,21 +26,6 @@ pub struct RouteRuntime {
     pub redirect_https: bool,
 }
 
-#[derive(Default)]
-pub struct HostTable {
-    exact: HashMap<String, Arc<RouteRuntime>>,
-    wildcard: HashMap<String, Arc<RouteRuntime>>,
-}
-
-impl HostTable {
-    /// Exact host first, then a single-label wildcard (`*.example.com`).
-    pub fn lookup(&self, host: &str) -> Option<&Arc<RouteRuntime>> {
-        self.exact
-            .get(host)
-            .or_else(|| host.split_once('.').and_then(|(_, rest)| self.wildcard.get(rest)))
-    }
-}
-
 pub struct Runtime {
     pub table: HostTable,
     pub trusted_proxies: Vec<IpNet>,
@@ -46,40 +35,22 @@ pub struct Runtime {
     pub config: Arc<Config>,
 }
 
-/// Placeholder data plane until the proxy exists (P5).
-fn placeholder_service() -> RouteSvc {
-    let svc = tower::service_fn(|_req: Req| async {
-        Ok::<Resp, Infallible>(simple(
-            http::StatusCode::SERVICE_UNAVAILABLE,
-            "text/plain",
-            "not wired",
-        ))
-    });
-    RouteSvc::new(svc)
-}
-
 pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> {
-    let mut table = HostTable::default();
-    for r in &cfg.routes {
-        let rt = Arc::new(RouteRuntime {
-            id: r.id.clone(),
-            hosts: r.hosts.clone(),
-            cfg: Arc::new(r.clone()),
-            service: placeholder_service(),
-            redirect_https: r.redirect_https,
-        });
-        for h in &r.hosts {
-            let (map, key) = match h.strip_prefix("*.") {
-                Some(rest) => (&mut table.wildcard, rest.to_string()),
-                None => (&mut table.exact, h.clone()),
-            };
-            if map.insert(key, rt.clone()).is_some() {
-                return Err(BuildError::Router(format!("duplicate host `{h}`")));
-            }
-        }
-    }
+    let routes = cfg
+        .routes
+        .iter()
+        .map(|r| {
+            Arc::new(RouteRuntime {
+                id: r.id.clone(),
+                hosts: r.hosts.clone(),
+                cfg: Arc::new(r.clone()),
+                service: stack::build_stack(),
+                redirect_https: r.redirect_https,
+            })
+        })
+        .collect();
     Ok(Runtime {
-        table,
+        table: HostTable::new(routes)?,
         trusted_proxies: cfg.gateway.trusted_proxies.clone(),
         https_port: cfg.gateway.listen_https.map(|a| a.port()),
         limits: cfg.gateway.limits.clone(),
@@ -113,14 +84,25 @@ mod tests {
     }
 
     #[test]
-    fn lookup_exact_wildcard_and_unknown() {
-        let c = cfg("route \"a.com\" \"*.b.com\" { upstream \"10.0.0.1:80\" }");
+    fn build_two_routes_lookup() {
+        let c = cfg(
+            "route \"a.com\" \"www.a.com\" { upstream \"10.0.0.1:80\" }\nroute \"*.b.com\" { upstream \"10.0.0.2:80\" }",
+        );
         let rt = build(&c, &Shared::new()).unwrap();
-        assert!(rt.table.lookup("a.com").is_some());
-        assert!(rt.table.lookup("x.b.com").is_some());
-        assert!(rt.table.lookup("x.y.b.com").is_none());
-        assert!(rt.table.lookup("b.com").is_none());
+        assert_eq!(&*rt.table.lookup("www.a.com").unwrap().id, "a.com");
+        assert_eq!(&*rt.table.lookup("a.com").unwrap().id, "a.com");
+        assert_eq!(&*rt.table.lookup("x.b.com").unwrap().id, "*.b.com");
         assert!(rt.table.lookup("nope.com").is_none());
+        assert_eq!(rt.generation, 1);
+        assert_eq!(rt.table.routes().len(), 2);
+    }
+
+    #[test]
+    fn generation_increments_on_each_build() {
+        let c = cfg("");
+        let shared = Shared::new();
+        assert_eq!(build(&c, &shared).unwrap().generation, 1);
+        assert_eq!(build(&c, &shared).unwrap().generation, 2);
     }
 
     #[test]
