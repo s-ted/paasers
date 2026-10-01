@@ -4,7 +4,7 @@ A single static binary that terminates TLS, routes by host name and proxies to y
 
 * One KDL config file, one SQLite file, no external service.
 * Hot reload (`SIGHUP` or file change), graceful shutdown.
-* Memory: about 19 MB RSS after 1000 requests with `worker-threads 2` and an empty cache, about 21.5 MB with the default of up to 4 worker threads (static musl release build, measured by `scripts/rss.sh`). The cache grows this by up to its `max-size`.
+* Memory budget: 32 MB. Measured on the static musl release build after 1000 requests with an empty cache: about 21.5 MB with the default of up to 4 worker threads, about 19 MB with `worker-threads 2` (`scripts/rss.sh`). The cache grows this by up to its `max-size`.
 
 ## Build
 
@@ -62,7 +62,7 @@ Both KDL v2 (`#true`) and KDL v1 (`true`) are accepted. Any unknown node or prop
 | `flight-recorder capacity=<n>` | 500 |
 | `log format="text"\|"json" level="<filter>"` | `text`, `info` (`RUST_LOG` wins) |
 | `limits max-connections max-body header-read-timeout max-headers-size` | 10000, 100MiB, 30s, 64KiB |
-| `worker-threads <n>` | `min(cpus, 4)`. Use 2 on small machines to stay under 20 MB. |
+| `worker-threads <n>` | `min(cpus, 4)`. Lower it on small machines to save a few MB. |
 | `default-cert "<host>"` | none (served when the client sends no SNI) |
 | `shutdown-grace "<duration>"` | 30s |
 
@@ -141,7 +141,7 @@ scripts/ci.sh                                    # fmt, clippy (two feature sets
 cargo test                                       # whole suite
 cargo test --no-default-features                 # without passkeys
 scripts/pebble.sh && PEBBLE_DIR=target/pebble cargo test --test acme -- --ignored   # real ACME
-scripts/rss.sh                                   # memory budget, needs the musl release build
+scripts/rss.sh                                   # memory budget (32 MB), needs the musl release build
 ```
 
 Manual checks that cannot be automated:

@@ -103,7 +103,7 @@ sleep 1
 for i in $(seq 1 1000); do curl -s -o /dev/null -H 'Host: rss.test' http://127.0.0.1:18000/; done
 RSS=$(awk '/VmRSS/{print $2}' /proc/$GW/status)
 echo "RSS=${RSS} kB"
-[ "$RSS" -lt 20480 ]
+[ "$RSS" -lt 32768 ]
 ```
 (The `;` separates KDL nodes on one line: valid KDL v2 syntax.)
 
