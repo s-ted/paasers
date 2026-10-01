@@ -1,0 +1,15 @@
+[tools]
+"cargo-binstall" = "latest"
+"cargo:cargo-outdated" = "latest"
+"cargo:cargo-watch" = "latest"
+"cargo:cargo-limit" = "latest"
+"cargo:cargo-zigbuild" = "latest"
+jj = "latest"
+zig = "latest"
+"github:nushell/nushell" = "latest"
+
+
+[env]
+RUST_LOG = "debug"
+
+# curl https://mise.run | sh
