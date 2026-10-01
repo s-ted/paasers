@@ -37,6 +37,15 @@ pub async fn run_shared(
     let shared = Arc::new(Shared::with_recorder_capacity(
         cfg.gateway.flight_recorder_capacity,
     ));
+    let key: [u8; 32] = db
+        .get_or_create_secret("session-hmac", 32)
+        .await?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("stored session key has an unexpected length"))?;
+    let _ = shared.gate.set(Arc::new(crate::gatekeeper::GateShared::new(
+        key,
+        Some(db.clone()),
+    )));
     let current = Arc::new(ArcSwap::from_pointee(routing::build(&cfg, &shared)?));
     let certs = CertManager::start(
         &cfg,

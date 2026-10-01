@@ -232,24 +232,29 @@ fn gatekeeper_defaults_and_all() {
     assert_eq!(g.cookie_name, "gate");
     assert_eq!((g.attempts, g.window), (5, Duration::from_secs(900)));
     assert!(g.totp_secret.is_none() && !g.passkey);
-    let src = r#"gateway { default-email "a@b.c" }
-route "a.com" {
+    let src = format!(
+        r#"gateway {{
+ default-email "a@b.c"
+}}
+route "a.com" {{
  upstream "10.0.0.1:80"
  tls
- gatekeeper {
+ gatekeeper {{
   title "T"
   psk-env "PSK_HASH"
   totp-secret-env "TOTP"
   session-duration "1h"
   rate-limit attempts=2 window="1m"
-  passkey #true
+  passkey {passkey}
   cookie-name "c"
- }
-}"#;
-    let g = parse(src).unwrap().routes.remove(0).gatekeeper.unwrap();
+ }}
+}}"#,
+        passkey = cfg!(feature = "passkey")
+    );
+    let g = parse(&src).unwrap().routes.remove(0).gatekeeper.unwrap();
     assert_eq!(g.totp_secret.unwrap().len(), 20);
     assert_eq!(g.session_duration, Duration::from_secs(3600));
-    assert!(g.passkey);
+    assert_eq!(g.passkey, cfg!(feature = "passkey"));
     assert_eq!(g.cookie_name, "c");
 }
 
@@ -410,6 +415,7 @@ fn wildcard_with_acme_rejected() {
     assert!(err(s).contains("wildcard"));
 }
 
+#[cfg(feature = "passkey")]
 #[test]
 fn passkey_requires_tls() {
     assert!(

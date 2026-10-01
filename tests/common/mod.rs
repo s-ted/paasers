@@ -165,3 +165,15 @@ pub async fn closed_port() -> SocketAddr {
     KEEP.lock().unwrap().push(std_sock);
     addr
 }
+
+/// Echo backend that also reports the `Cookie` header it received.
+pub async fn spawn_echo_backend_with_cookie() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    spawn_backend(|req| async move {
+        let mut b = http::Response::builder().status(200);
+        if let Some(v) = req.headers().get("cookie") {
+            b = b.header("x-seen-cookie", v.clone());
+        }
+        b.body(Full::new(Bytes::from_static(b"private page"))).unwrap()
+    })
+    .await
+}

@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>{{TITLE}}</title>
+<style nonce="{{NONCE}}">body{font-family:system-ui,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f6f7f9;color:#1c1e21}main{width:100%;max-width:22rem;padding:2rem;background:#fff;border-radius:12px;box-shadow:0 2px 12px #0002}h1{font-size:1.3rem;margin:0 0 .25rem}p.sub{margin:0 0 1.25rem;color:#6b7280}label{display:block;font-size:.85rem;margin:.75rem 0 .25rem}input{width:100%;box-sizing:border-box;padding:.6rem;border:1px solid #c5c9d0;border-radius:6px;font-size:1rem}button{width:100%;margin-top:1rem;padding:.65rem;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:1rem;cursor:pointer}button.alt{background:#e5e7eb;color:#1c1e21}.err{background:#fee2e2;color:#991b1b;padding:.5rem .75rem;border-radius:6px}a{color:#2563eb}@media(prefers-color-scheme:dark){body{background:#16181c;color:#e6e8eb}main{background:#20232a}input{background:#16181c;color:#e6e8eb;border-color:#3b3f47}p.sub{color:#9ca3af}button.alt{background:#3b3f47;color:#e6e8eb}}</style></head>
+<body data-mode="{{MODE}}"><main><h1>{{TITLE}}</h1>
+{{MESSAGE}}
+<div id="login-mode"><p class="sub">This environment is protected.</p>
+<form method="post" action="/__gate/login"><input type="hidden" name="next" value="{{NEXT}}">
+<label for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+{{TOTP_FIELD}}<button type="submit">Enter</button></form>{{PASSKEY_BUTTON}}</div>
+<div id="passkey-mode" hidden><p class="sub">Register a passkey (Touch ID, Face ID, security key) for your next visits.</p>
+<label for="lbl">Label</label><input id="lbl" maxlength="64" value="My device"><button type="button" id="reg">Register</button><p><a id="later" href="{{NEXT}}">Later</a></p></div>
+</main>
+<script nonce="{{NONCE}}">
+var NEXT="{{NEXT_JS}}",mode=document.body.dataset.mode;
+function b64u2buf(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var b=atob(s),a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer}
+function buf2b64u(b){var a=new Uint8Array(b),s='';for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function post(u,o){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}).then(function(r){return r.json()})}
+function conv(o,ids){var p=o.publicKey;p.challenge=b64u2buf(p.challenge);if(p.user)p.user.id=b64u2buf(p.user.id);ids.forEach(function(k){(p[k]||[]).forEach(function(c){c.id=b64u2buf(c.id)})});return o}
+function ser(c){var r=c.response,o={id:c.id,rawId:buf2b64u(c.rawId),type:c.type,extensions:{},response:{clientDataJSON:buf2b64u(r.clientDataJSON)}};
+if(r.attestationObject)o.response.attestationObject=buf2b64u(r.attestationObject);
+if(r.authenticatorData)o.response.authenticatorData=buf2b64u(r.authenticatorData);
+if(r.signature)o.response.signature=buf2b64u(r.signature);
+if(r.userHandle)o.response.userHandle=buf2b64u(r.userHandle);return o}
+var supported=!!window.PublicKeyCredential;
+var pk=document.getElementById('pk-login');if(pk){if(!supported)pk.hidden=true;else pk.onclick=function(){
+post('/__gate/passkey/login/start',{}).then(function(s){if(!s.id)throw 0;return navigator.credentials.get(conv(s.options,['allowCredentials'])).then(function(c){return post('/__gate/passkey/login/finish',{id:s.id,credential:ser(c),next:NEXT})})}).then(function(r){if(r.ok)location=r.next||NEXT;else alert('Passkey sign-in failed')}).catch(function(){alert('Passkey sign-in failed')})}}
+if(mode==='passkey'){document.getElementById('login-mode').hidden=true;document.getElementById('passkey-mode').hidden=false;
+document.getElementById('reg').onclick=function(){if(!supported){alert('Passkeys are not supported by this browser');return}
+post('/__gate/passkey/register/start',{}).then(function(s){if(!s.id)throw 0;return navigator.credentials.create(conv(s.options,['excludeCredentials'])).then(function(c){return post('/__gate/passkey/register/finish',{id:s.id,credential:ser(c),label:document.getElementById('lbl').value})})}).then(function(r){if(r.ok)location=NEXT;else alert('Registration failed')}).catch(function(){alert('Registration failed')})}}
+</script></body></html>

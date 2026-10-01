@@ -19,6 +19,8 @@ use std::sync::atomic::Ordering;
 pub enum BuildError {
     #[error("router: {0}")]
     Router(String),
+    #[error("gatekeeper: {0}")]
+    Gatekeeper(String),
 }
 
 pub struct RouteRuntime {
@@ -54,7 +56,7 @@ pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> 
     let routes = cfg
         .routes
         .iter()
-        .map(|r| {
+        .map(|r| -> Result<_, BuildError> {
             let balancer = Arc::new(Balancer::new(&r.upstreams, &shared.health));
             // The first route declaring an address decides its probe configuration.
             for u in &r.upstreams {
@@ -62,20 +64,26 @@ pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> 
                     shared.health.ensure_checker(u.addr, &r.health, &shared.client);
                 }
             }
-            Arc::new(RouteRuntime {
+            Ok(Arc::new(RouteRuntime {
                 id: r.id.clone(),
                 hosts: r.hosts.clone(),
                 cfg: Arc::new(r.clone()),
-                service: stack::build_stack(r, balancer.clone(), shared, trusted.clone()),
+                service: stack::build_stack(
+                    r,
+                    balancer.clone(),
+                    shared,
+                    trusted.clone(),
+                    cfg.gateway.listen_https.map(|a| a.port()),
+                )?,
                 balancer,
                 cache: r
                     .cache
                     .as_ref()
                     .map(|c| shared.caches.get_or_create(&r.id, c, &r.upstreams)),
                 redirect_https: r.redirect_https,
-            })
+            }))
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     shared
         .caches
         .retain(&cfg.routes.iter().map(|r| r.id.clone()).collect());
