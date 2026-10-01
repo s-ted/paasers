@@ -1,4 +1,5 @@
 //! Assembly of a route's Tower stack (layers are added by later phases, in the order of PLAN §1.3).
+use crate::cache::CacheLayer;
 use crate::config::RouteCfg;
 use crate::layers::fallback::FallbackLayer;
 use crate::prelude::{Req, Resp, RouteSvc, simple};
@@ -35,5 +36,12 @@ pub fn build_stack(
         trusted,
         shared.tunnels.clone(),
     ));
-    RouteSvc::new(FallbackLayer::new(route.fallback.clone()).layer(svc))
+    let svc = RouteSvc::new(FallbackLayer::new(route.fallback.clone()).layer(svc));
+    match &route.cache {
+        Some(c) => {
+            let cache = shared.caches.get_or_create(&route.id, c, &route.upstreams);
+            RouteSvc::new(CacheLayer::new(cache).layer(svc))
+        }
+        None => svc,
+    }
 }

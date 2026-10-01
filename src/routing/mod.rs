@@ -27,6 +27,7 @@ pub struct RouteRuntime {
     pub cfg: Arc<RouteCfg>,
     pub service: RouteSvc,
     pub balancer: Arc<Balancer>,
+    pub cache: Option<Arc<crate::cache::HttpCache>>,
     pub redirect_https: bool,
 }
 
@@ -67,10 +68,17 @@ pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> 
                 cfg: Arc::new(r.clone()),
                 service: stack::build_stack(r, balancer.clone(), shared, trusted.clone()),
                 balancer,
+                cache: r
+                    .cache
+                    .as_ref()
+                    .map(|c| shared.caches.get_or_create(&r.id, c, &r.upstreams)),
                 redirect_https: r.redirect_https,
             })
         })
         .collect();
+    shared
+        .caches
+        .retain(&cfg.routes.iter().map(|r| r.id.clone()).collect());
     Ok(Runtime {
         table: HostTable::new(routes)?,
         trusted_proxies: cfg.gateway.trusted_proxies.clone(),

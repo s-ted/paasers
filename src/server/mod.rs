@@ -3,7 +3,7 @@ mod entry;
 mod http;
 mod listener;
 mod reload;
-mod request;
+pub(crate) mod request;
 mod run;
 mod shutdown;
 mod tls_accept;
@@ -26,6 +26,7 @@ pub struct Shared {
     pub tunnels: Arc<AtomicUsize>,
     /// Actually bound HTTPS port (0 until bound), used for redirects when the configured port is 0.
     pub https_port: std::sync::atomic::AtomicU16,
+    pub caches: Arc<crate::cache::CacheRegistry>,
     pub certs: Arc<crate::tls::CertResolver>,
     /// HTTP-01 key authorizations served on the plain HTTP listener.
     pub challenges: Arc<crate::tls::ChallengeStore>,
@@ -45,6 +46,7 @@ impl Shared {
             health: Arc::new(crate::proxy::HealthRegistry::new()),
             tunnels: Arc::new(AtomicUsize::new(0)),
             https_port: std::sync::atomic::AtomicU16::new(0),
+            caches: Arc::new(crate::cache::CacheRegistry::default()),
             certs: Arc::new(crate::tls::CertResolver::default()),
             challenges: Arc::new(crate::tls::ChallengeStore::default()),
         }

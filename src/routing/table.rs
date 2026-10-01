@@ -51,6 +51,7 @@ mod tests {
                     cfg: Arc::new(r.clone()),
                     service: placeholder_service(),
                     balancer: Arc::new(Balancer::new(&r.upstreams, &HealthRegistry::new())),
+                    cache: None,
                     redirect_https: r.redirect_https,
                 })
             })
