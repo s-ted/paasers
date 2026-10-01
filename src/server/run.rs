@@ -130,15 +130,29 @@ pub async fn run_shared(
     }
     tokio::spawn(maintenance(shared.clone(), shutdown.clone()));
     tokio::spawn(shutdown::wait_for_signal(shutdown.clone()));
+    let mut mcp_addr = None;
+    let mut mcp_task = None;
+    if let Some(m) = &cfg.mcp {
+        let state = Arc::new(crate::mcp::McpState {
+            current: current.clone(),
+            recorder: shared.recorder.clone(),
+            db: db.clone(),
+            started_at: shared.started_at,
+            tunnels: shared.tunnels.clone(),
+        });
+        let (addr, task) = crate::mcp::serve(m, state, shutdown.clone()).await?;
+        mcp_addr = Some(addr);
+        mcp_task = Some(task);
+    }
     let _ = ready.send(BoundAddrs {
         http: http_addr,
         https: https_addr,
-        mcp: None,
+        mcp: mcp_addr,
     });
     tracing::info!(http = %http_addr, https = ?https_addr, routes = cfg.routes.len(), "gateway started");
 
     shutdown.cancelled().await;
-    for a in accepts {
+    for a in accepts.into_iter().chain(mcp_task) {
         let _ = a.await;
     }
     drop(spawn_conn);

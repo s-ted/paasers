@@ -9,6 +9,7 @@ mod shutdown;
 mod tls_accept;
 
 pub use entry::EntryService;
+pub use listener::bind as bind_listener;
 pub use run::{run_shared, run_with};
 
 use std::net::SocketAddr;

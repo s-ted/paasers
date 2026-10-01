@@ -148,6 +148,10 @@ impl FlightRecorder {
         self.total.load(Ordering::Relaxed)
     }
 
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     pub fn len(&self) -> usize {
         self.lock().len()
     }

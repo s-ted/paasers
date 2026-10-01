@@ -177,3 +177,36 @@ pub async fn spawn_echo_backend_with_cookie() -> (SocketAddr, tokio::task::JoinH
     })
     .await
 }
+
+/// Minimal JSON-RPC client for the MCP endpoint, over a raw TCP request.
+pub async fn mcp_call(
+    addr: SocketAddr,
+    token: Option<&str>,
+    body: &serde_json::Value,
+) -> (u16, serde_json::Value) {
+    let payload = body.to_string();
+    let auth = token
+        .map(|t| format!("Authorization: Bearer {t}\r\n"))
+        .unwrap_or_default();
+    let req = format!(
+        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\n{auth}Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2025-11-25\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+        payload.len()
+    );
+    let raw = raw_bytes(addr, req.as_bytes()).await;
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let body = text.split("\r\n\r\n").nth(1).unwrap_or_default();
+    // Chunked bodies: keep what looks like the JSON document.
+    let json = body
+        .find('{')
+        .and_then(|a| body.rfind('}').map(|b| &body[a..=b]))
+        .unwrap_or("null");
+    (
+        status,
+        serde_json::from_str(json).unwrap_or(serde_json::Value::Null),
+    )
+}
