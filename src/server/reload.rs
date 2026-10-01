@@ -37,6 +37,7 @@ pub fn reload_once(path: &Path, current: &ArcSwap<Runtime>, shared: &Shared) -> 
     let rt = routing::build(&cfg, shared).map_err(|e| e.to_string())?;
     let routes = cfg.routes.len();
     current.store(Arc::new(rt));
+    shared.health.retain(&routing::active_upstreams(&cfg));
     Ok(routes)
 }
 

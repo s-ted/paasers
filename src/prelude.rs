@@ -44,6 +44,9 @@ pub fn simple(status: http::StatusCode, ctype: &'static str, body: impl Into<Byt
 
 #[derive(Clone, Copy, Debug)]
 pub struct ClientIp(pub std::net::IpAddr);
+/// Raw TCP peer address (before any `X-Forwarded-For` resolution).
+#[derive(Clone, Copy, Debug)]
+pub struct PeerIp(pub std::net::IpAddr);
 #[derive(Clone, Copy, Debug)]
 pub struct Scheme(pub &'static str);
 #[derive(Clone, Debug)]

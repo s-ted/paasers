@@ -1,8 +1,13 @@
 //! Assembly of a route's Tower stack (layers are added by later phases, in the order of PLAN §1.3).
+use crate::config::RouteCfg;
 use crate::prelude::{Req, Resp, RouteSvc, simple};
+use crate::proxy::{Balancer, ProxyService};
+use crate::server::Shared;
+use ipnet::IpNet;
 use std::convert::Infallible;
+use std::sync::Arc;
 
-/// Base service used until the proxy exists (P5).
+/// Service that always answers 503, for tests that do not need a real proxy.
 pub fn placeholder_service() -> RouteSvc {
     let svc = tower::service_fn(|_req: Req| async {
         Ok::<Resp, Infallible>(simple(
@@ -15,6 +20,17 @@ pub fn placeholder_service() -> RouteSvc {
 }
 
 /// Builds the full service of one route. Inner to outer, each step returns a `RouteSvc` (rule R5).
-pub fn build_stack() -> RouteSvc {
-    placeholder_service()
+pub fn build_stack(
+    route: &RouteCfg,
+    balancer: Arc<Balancer>,
+    shared: &Shared,
+    trusted: Arc<Vec<IpNet>>,
+) -> RouteSvc {
+    RouteSvc::new(ProxyService::new(
+        balancer,
+        shared.client.clone(),
+        route.request_timeout,
+        trusted,
+        shared.tunnels.clone(),
+    ))
 }

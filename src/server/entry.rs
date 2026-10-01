@@ -2,7 +2,7 @@
 use super::Shared;
 use crate::observe::{fallback::render_error, trace};
 use crate::prelude::{
-    BoxFut, ClientIp, Req, RequestStart, Resp, RouteId, RouteSvc, Scheme, TraceCtx, boxed, empty,
+    BoxFut, ClientIp, PeerIp, Req, RequestStart, Resp, RouteId, RouteSvc, Scheme, TraceCtx, boxed, empty,
 };
 use crate::routing::{Runtime, strip_spoofable};
 use arc_swap::ArcSwap;
@@ -164,6 +164,7 @@ impl tower::Service<http::Request<hyper::body::Incoming>> for EntryService {
                 }
                 let limit = usize::try_from(rt.limits.max_body).unwrap_or(usize::MAX);
                 parts.extensions.insert(ClientIp(ip));
+                parts.extensions.insert(PeerIp(peer.ip().to_canonical()));
                 parts.extensions.insert(scheme);
                 parts.extensions.insert(trace.clone());
                 parts.extensions.insert(RouteId(route.id.clone()));

@@ -37,6 +37,7 @@ mod tests {
     use super::super::stack::placeholder_service;
     use super::*;
     use crate::config::parse_str;
+    use crate::proxy::{Balancer, HealthRegistry};
 
     fn table(src: &str) -> HostTable {
         let cfg = parse_str(src, &|_| None).unwrap();
@@ -49,6 +50,7 @@ mod tests {
                     hosts: r.hosts.clone(),
                     cfg: Arc::new(r.clone()),
                     service: placeholder_service(),
+                    balancer: Arc::new(Balancer::new(&r.upstreams, &HealthRegistry::new())),
                     redirect_https: r.redirect_https,
                 })
             })

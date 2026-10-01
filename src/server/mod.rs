@@ -15,7 +15,7 @@ use hyper_util::server::graceful::GracefulShutdown;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 use tokio::sync::{Semaphore, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -23,6 +23,10 @@ use tokio_util::sync::CancellationToken;
 pub struct Shared {
     pub generation: AtomicU64,
     pub started_at: std::time::SystemTime,
+    pub client: crate::proxy::UpstreamClient,
+    pub health: Arc<crate::proxy::HealthRegistry>,
+    /// Active WebSocket tunnels.
+    pub tunnels: Arc<AtomicUsize>,
 }
 
 impl Shared {
@@ -30,6 +34,9 @@ impl Shared {
         Self {
             generation: AtomicU64::new(0),
             started_at: std::time::SystemTime::now(),
+            client: crate::proxy::new_client(),
+            health: Arc::new(crate::proxy::HealthRegistry::new()),
+            tunnels: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -58,6 +65,7 @@ pub async fn run_with(
     let cfg = Arc::new(cfg);
     let shared = Arc::new(Shared::new());
     let current = Arc::new(ArcSwap::from_pointee(routing::build(&cfg, &shared)?));
+    shared.health.retain(&routing::active_upstreams(&cfg));
     let conns = Arc::new(Semaphore::new(cfg.gateway.limits.max_connections));
     let graceful = Arc::new(GracefulShutdown::new());
     let limits = cfg.gateway.limits.clone();
@@ -116,6 +124,7 @@ pub async fn run_with(
         Ok(g) => shutdown::drain(g, cfg.gateway.shutdown_grace).await,
         Err(_) => tracing::warn!("graceful handle still shared, skipping drain"),
     }
+    shared.health.shutdown();
     tracing::info!("gateway stopped");
     Ok(())
 }

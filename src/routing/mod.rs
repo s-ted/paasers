@@ -7,8 +7,11 @@ pub use table::HostTable;
 
 use crate::config::{Config, Limits, RouteCfg};
 use crate::prelude::{Req, RouteSvc};
+use crate::proxy::Balancer;
 use crate::server::Shared;
 use ipnet::IpNet;
+use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -23,6 +26,7 @@ pub struct RouteRuntime {
     pub hosts: Vec<String>,
     pub cfg: Arc<RouteCfg>,
     pub service: RouteSvc,
+    pub balancer: Arc<Balancer>,
     pub redirect_https: bool,
 }
 
@@ -35,16 +39,34 @@ pub struct Runtime {
     pub config: Arc<Config>,
 }
 
+/// Every upstream address referenced by the configuration.
+pub fn active_upstreams(cfg: &Config) -> HashSet<SocketAddr> {
+    cfg.routes
+        .iter()
+        .flat_map(|r| r.upstreams.iter().map(|u| u.addr))
+        .collect()
+}
+
 pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> {
+    let trusted = Arc::new(cfg.gateway.trusted_proxies.clone());
+    let mut probed: HashSet<SocketAddr> = HashSet::new();
     let routes = cfg
         .routes
         .iter()
         .map(|r| {
+            let balancer = Arc::new(Balancer::new(&r.upstreams, &shared.health));
+            // The first route declaring an address decides its probe configuration.
+            for u in &r.upstreams {
+                if probed.insert(u.addr) {
+                    shared.health.ensure_checker(u.addr, &r.health, &shared.client);
+                }
+            }
             Arc::new(RouteRuntime {
                 id: r.id.clone(),
                 hosts: r.hosts.clone(),
                 cfg: Arc::new(r.clone()),
-                service: stack::build_stack(),
+                service: stack::build_stack(r, balancer.clone(), shared, trusted.clone()),
+                balancer,
                 redirect_https: r.redirect_https,
             })
         })
@@ -95,6 +117,20 @@ mod tests {
         assert!(rt.table.lookup("nope.com").is_none());
         assert_eq!(rt.generation, 1);
         assert_eq!(rt.table.routes().len(), 2);
+    }
+
+    #[test]
+    fn health_state_survives_rebuild() {
+        let c = cfg("route \"a.com\" { upstream \"10.0.0.1:80\" }");
+        let shared = Shared::new();
+        let addr: SocketAddr = "10.0.0.1:80".parse().unwrap();
+        let first = build(&c, &shared).unwrap();
+        let h = shared.health.get(addr).unwrap();
+        h.report_failure_passive();
+        let second = build(&c, &shared).unwrap();
+        let again = &second.table.lookup("a.com").unwrap().balancer.upstreams[0].health;
+        assert!(Arc::ptr_eq(&h, again) && !again.is_healthy());
+        assert!(first.table.lookup("a.com").unwrap().balancer.pick().is_none());
     }
 
     #[test]
