@@ -20,10 +20,7 @@ route "secure.example.com" {
 "#;
 
 fn basic() -> String {
-    BASIC.replace(
-        "listen \"127.0.0.1:0\"",
-        "listen \"127.0.0.1:0\" \"127.0.0.1:8443\"",
-    )
+    BASIC.replace("listen \"127.0.0.1:0\"", "listen \"127.0.0.1:0\" \"127.0.0.1:0\"")
 }
 
 #[tokio::test]
@@ -63,11 +60,9 @@ async fn tls_route_redirects_to_https() {
     )
     .await;
     assert!(r.starts_with("HTTP/1.1 301"), "{r}");
-    assert!(
-        r.to_ascii_lowercase()
-            .contains("location: https://secure.example.com:8443/p?q=1"),
-        "{r}"
-    );
+    let port = g.addrs.https.unwrap().port();
+    let want = format!("location: https://secure.example.com:{port}/p?q=1");
+    assert!(r.to_ascii_lowercase().contains(&want), "{r}");
     assert!(r.contains("/p?q=1"), "{r}");
     g.stop().await;
 }

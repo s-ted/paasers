@@ -2,6 +2,7 @@
 use super::Shared;
 use crate::config::{self, Config};
 use crate::routing::{self, Runtime};
+use crate::tls::CertManager;
 use arc_swap::ArcSwap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -26,7 +27,12 @@ pub fn apply_restart_only(old: &Config, mut new: Config) -> (Config, Vec<&'stati
 }
 
 /// Loads the file and swaps the runtime. On any error the previous runtime is kept.
-pub fn reload_once(path: &Path, current: &ArcSwap<Runtime>, shared: &Shared) -> Result<usize, String> {
+pub async fn reload_once(
+    path: &Path,
+    current: &ArcSwap<Runtime>,
+    shared: &Shared,
+    certs: Option<&CertManager>,
+) -> Result<usize, String> {
     let new = config::load(path).map_err(|e| e.to_string())?;
     let old = current.load_full();
     let (cfg, ignored) = apply_restart_only(&old.config, new);
@@ -35,6 +41,9 @@ pub fn reload_once(path: &Path, current: &ArcSwap<Runtime>, shared: &Shared) -> 
         .for_each(|f| tracing::warn!(field = f, "changed setting requires a restart, ignored"));
     let cfg = Arc::new(cfg);
     let rt = routing::build(&cfg, shared).map_err(|e| e.to_string())?;
+    if let Some(c) = certs {
+        c.reconcile(&cfg, false).await.map_err(|e| e.to_string())?;
+    }
     let routes = cfg.routes.len();
     current.store(Arc::new(rt));
     shared.health.retain(&routing::active_upstreams(&cfg));
@@ -52,6 +61,7 @@ pub async fn watch(
     path: PathBuf,
     current: Arc<ArcSwap<Runtime>>,
     shared: Arc<Shared>,
+    certs: CertManager,
     shutdown: CancellationToken,
 ) {
     use tokio::signal::unix::{SignalKind, signal};
@@ -71,7 +81,7 @@ pub async fn watch(
                 last = now;
             }
         }
-        match reload_once(&path, &current, &shared) {
+        match reload_once(&path, &current, &shared, Some(&certs)).await {
             Ok(routes) => tracing::info!(routes, "config reloaded"),
             Err(err) => {
                 tracing::error!(%err, "config reload failed; keeping previous config");
@@ -106,8 +116,8 @@ mod tests {
         assert!(ignored.contains(&"listen_http") && ignored.contains(&"mcp-server"));
     }
 
-    #[test]
-    fn reload_keeps_old_runtime_on_error() {
+    #[tokio::test]
+    async fn reload_keeps_old_runtime_on_error() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("c.kdl");
         std::fs::write(&p, "route \"a.com\" { upstream \"10.0.0.1:80\" }").unwrap();
@@ -115,10 +125,10 @@ mod tests {
         let first = Arc::new(cfg("route \"a.com\" { upstream \"10.0.0.1:80\" }"));
         let cur = ArcSwap::from_pointee(routing::build(&first, &shared).unwrap());
         std::fs::write(&p, "route {{{").unwrap();
-        assert!(reload_once(&p, &cur, &shared).is_err());
+        assert!(reload_once(&p, &cur, &shared, None).await.is_err());
         assert_eq!(cur.load().generation, 1);
         std::fs::write(&p, "route \"a.com\" \"b.com\" { upstream \"10.0.0.1:80\" }").unwrap();
-        assert_eq!(reload_once(&p, &cur, &shared).unwrap(), 1);
+        assert_eq!(reload_once(&p, &cur, &shared, None).await.unwrap(), 1);
         assert!(cur.load().table.lookup("b.com").is_some());
     }
 }

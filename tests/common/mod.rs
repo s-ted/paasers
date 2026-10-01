@@ -12,6 +12,7 @@ pub struct GatewayHandle {
     pub shared: std::sync::Arc<paasers::server::Shared>,
     pub shutdown: CancellationToken,
     pub task: tokio::task::JoinHandle<anyhow::Result<()>>,
+    _storage: Option<tempfile::TempDir>,
 }
 
 impl GatewayHandle {
@@ -27,7 +28,14 @@ impl GatewayHandle {
 
 /// Starts a gateway on ephemeral ports from KDL source.
 pub async fn spawn_gateway(kdl: &str) -> GatewayHandle {
-    let cfg = parse_str(kdl, &|_| None).unwrap();
+    let mut cfg = parse_str(kdl, &|_| None).unwrap();
+    // Tests that do not choose a storage path get a private temporary database.
+    let default_path = parse_str("", &|_| None).unwrap().gateway.storage_path;
+    let storage = (cfg.gateway.storage_path == default_path).then(|| {
+        let d = tempfile::tempdir().unwrap();
+        cfg.gateway.storage_path = d.path().join("certs.db");
+        d
+    });
     let (tx, rx) = tokio::sync::oneshot::channel();
     let shutdown = CancellationToken::new();
     let (stx, srx) = tokio::sync::oneshot::channel();
@@ -39,6 +47,7 @@ pub async fn spawn_gateway(kdl: &str) -> GatewayHandle {
         shared,
         shutdown,
         task,
+        _storage: storage,
     }
 }
 
@@ -144,8 +153,15 @@ pub async fn raw_bytes(addr: SocketAddr, req: &[u8]) -> Vec<u8> {
     out
 }
 
-/// A TCP port that is currently closed.
+/// A TCP port that refuses connections. The socket stays bound (never listening) for the whole test
+/// process, so no other test can be handed the same ephemeral port.
 pub async fn closed_port() -> SocketAddr {
-    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    l.local_addr().unwrap()
+    static KEEP: std::sync::Mutex<Vec<std::net::TcpListener>> = std::sync::Mutex::new(Vec::new());
+    let s = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap();
+    s.bind(&SocketAddr::from(([127, 0, 0, 1], 0)).into()).unwrap();
+    let addr = s.local_addr().unwrap().as_socket().unwrap();
+    // Not converted into a listener: bound but not listening, so connects are refused.
+    let std_sock: std::net::TcpListener = s.into();
+    KEEP.lock().unwrap().push(std_sock);
+    addr
 }
