@@ -120,10 +120,22 @@ async fn backend_down_gives_502_then_503_after_unhealthy() {
     .await;
     // A POST is not retried: the connect error is reported as 502 and marks the upstream unhealthy.
     let post = "POST / HTTP/1.1\r\nHost: app.test\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx";
+    // The fallback page answers 503, the recorder keeps the real cause (origin 502).
     let r = raw_request(g.http_addr(), post).await;
-    assert!(r.starts_with("HTTP/1.1 502"), "{r}");
+    assert!(r.starts_with("HTTP/1.1 503"), "{r}");
+    let first = g.shared.recorder.query(&Default::default());
+    assert_eq!(first[0].kind, "upstream_connect");
+    assert!(
+        first[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .starts_with("origin_status=502")
+    );
     let r = raw_request(g.http_addr(), &get("/")).await;
     assert!(r.starts_with("HTTP/1.1 503"), "{r}");
+    let second = g.shared.recorder.query(&Default::default());
+    assert_eq!(second[0].kind, "no_healthy_upstream");
     g.stop().await;
 }
 
@@ -137,8 +149,11 @@ async fn backend_timeout_504() {
     let g = spawn_gateway(&kdl(&[b], "timeouts request=\"500ms\"")).await;
     let started = std::time::Instant::now();
     let r = raw_request(g.http_addr(), &get("/")).await;
-    assert!(r.starts_with("HTTP/1.1 504"), "{r}");
+    assert!(r.starts_with("HTTP/1.1 503"), "{r}");
     assert!(started.elapsed() < Duration::from_millis(1800));
+    let inc = g.shared.recorder.query(&Default::default());
+    assert_eq!(inc[0].kind, "upstream_timeout");
+    assert!(inc[0].detail.as_deref().unwrap().starts_with("origin_status=504"));
     g.stop().await;
 }
 
@@ -224,5 +239,92 @@ async fn health_recovery() {
         }
     }
     assert!(up, "upstream never came back");
+    g.stop().await;
+}
+
+#[tokio::test]
+async fn fallback_incident_id_matches_recorder() {
+    let dead = closed_port().await;
+    let g = spawn_gateway(&kdl(&[dead], "health-check enabled=#true interval=\"30s\"")).await;
+    let r = raw_request(g.http_addr(), &get("/")).await;
+    assert!(r.starts_with("HTTP/1.1 503"), "{r}");
+    assert!(r.to_ascii_lowercase().contains("retry-after: 30"), "{r}");
+    let id = r
+        .split("id=\"iid\">")
+        .nth(1)
+        .and_then(|t| t.split('<').next())
+        .unwrap()
+        .to_string();
+    assert_eq!(id.len(), 32, "{r}");
+    assert!(
+        r.to_ascii_lowercase().contains(&format!("x-request-id: {id}")),
+        "{r}"
+    );
+    let found = g.shared.recorder.get(&id);
+    assert!(!found.is_empty());
+    assert_eq!(found[0].kind, "upstream_connect");
+    assert_eq!(found[0].host.as_deref(), Some("app.test"));
+    assert_eq!(found[0].route_id.as_deref(), Some("app.test"));
+    assert!(
+        found[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .starts_with("origin_status=502")
+    );
+    g.stop().await;
+}
+
+#[tokio::test]
+async fn json_fallback_and_hidden_incident() {
+    let dead = closed_port().await;
+    let extra = "health-check interval=\"30s\"\n fallback status=503 show-incident-id=#false title=\"Down\"";
+    let g = spawn_gateway(&kdl(&[dead], extra)).await;
+    let r = raw_request(
+        g.http_addr(),
+        "GET / HTTP/1.1\r\nHost: app.test\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(r.starts_with("HTTP/1.1 503"), "{r}");
+    assert!(
+        r.contains("\"title\":\"Down\"") && !r.contains("incident_id"),
+        "{r}"
+    );
+    g.stop().await;
+}
+
+#[tokio::test]
+async fn upstream_body_cut_is_recorded() {
+    // Backend promises 100 bytes, sends 5, then closes.
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = l.accept().await else { return };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf).await;
+                let _ = s
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nhello")
+                    .await;
+            });
+        }
+    });
+    let g = spawn_gateway(&kdl(&[addr], "")).await;
+    let _ = raw_bytes(g.http_addr(), get("/").as_bytes()).await;
+    let mut found = false;
+    for _ in 0..40 {
+        if g.shared
+            .recorder
+            .query(&Default::default())
+            .iter()
+            .any(|i| i.kind == "upstream_body_error")
+        {
+            found = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(found, "no upstream_body_error recorded");
     g.stop().await;
 }

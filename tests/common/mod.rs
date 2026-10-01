@@ -1,7 +1,7 @@
 //! Shared helpers for integration tests.
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 use paasers::config::parse_str;
-use paasers::server::{BoundAddrs, run_with};
+use paasers::server::{BoundAddrs, run_shared};
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 pub struct GatewayHandle {
     pub addrs: BoundAddrs,
+    pub shared: std::sync::Arc<paasers::server::Shared>,
     pub shutdown: CancellationToken,
     pub task: tokio::task::JoinHandle<anyhow::Result<()>>,
 }
@@ -29,10 +30,13 @@ pub async fn spawn_gateway(kdl: &str) -> GatewayHandle {
     let cfg = parse_str(kdl, &|_| None).unwrap();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let shutdown = CancellationToken::new();
-    let task = tokio::spawn(run_with(cfg, None, tx, shutdown.clone()));
+    let (stx, srx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(run_shared(cfg, None, tx, shutdown.clone(), Some(stx)));
     let addrs = rx.await.unwrap();
+    let shared = srx.await.unwrap();
     GatewayHandle {
         addrs,
+        shared,
         shutdown,
         task,
     }

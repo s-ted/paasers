@@ -1,3 +1,7 @@
-//! Observability: trace context and error pages (recorder and body watcher come in P6).
+//! Observability: trace context, flight recorder, error pages and body watching.
+pub mod body_watch;
 pub mod fallback;
+pub mod recorder;
 pub mod trace;
+
+pub use recorder::{FlightRecorder, Incident, Query};

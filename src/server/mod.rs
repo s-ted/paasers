@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 pub struct Shared {
     pub generation: AtomicU64,
     pub started_at: std::time::SystemTime,
+    pub recorder: Arc<crate::observe::FlightRecorder>,
     pub client: crate::proxy::UpstreamClient,
     pub health: Arc<crate::proxy::HealthRegistry>,
     /// Active WebSocket tunnels.
@@ -31,7 +32,12 @@ pub struct Shared {
 
 impl Shared {
     pub fn new() -> Self {
+        Self::with_recorder_capacity(500)
+    }
+
+    pub fn with_recorder_capacity(capacity: usize) -> Self {
         Self {
+            recorder: Arc::new(crate::observe::FlightRecorder::new(capacity)),
             generation: AtomicU64::new(0),
             started_at: std::time::SystemTime::now(),
             client: crate::proxy::new_client(),
@@ -61,10 +67,26 @@ pub async fn run_with(
     ready: oneshot::Sender<BoundAddrs>,
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
+    run_shared(cfg, cfg_path, ready, shutdown, None).await
+}
+
+/// Same as `run_with`, additionally handing the shared state to `shared_out` (tests and MCP wiring).
+pub async fn run_shared(
+    cfg: Config,
+    cfg_path: Option<PathBuf>,
+    ready: oneshot::Sender<BoundAddrs>,
+    shutdown: CancellationToken,
+    shared_out: Option<oneshot::Sender<Arc<Shared>>>,
+) -> anyhow::Result<()> {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let cfg = Arc::new(cfg);
-    let shared = Arc::new(Shared::new());
+    let shared = Arc::new(Shared::with_recorder_capacity(
+        cfg.gateway.flight_recorder_capacity,
+    ));
     let current = Arc::new(ArcSwap::from_pointee(routing::build(&cfg, &shared)?));
+    if let Some(out) = shared_out {
+        let _ = out.send(shared.clone());
+    }
     shared.health.retain(&routing::active_upstreams(&cfg));
     let conns = Arc::new(Semaphore::new(cfg.gateway.limits.max_connections));
     let graceful = Arc::new(GracefulShutdown::new());

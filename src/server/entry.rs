@@ -1,8 +1,10 @@
 //! Entry service: the first service called for each request.
 use super::Shared;
-use crate::observe::{fallback::render_error, trace};
+use crate::observe::body_watch::WatchBody;
+use crate::observe::{Incident, fallback::render_error, trace};
 use crate::prelude::{
-    BoxFut, ClientIp, PeerIp, Req, RequestStart, Resp, RouteId, RouteSvc, Scheme, TraceCtx, boxed, empty,
+    BoxFut, ClientIp, IncidentKind, PeerIp, ProxyFailure, Req, RequestStart, Resp, RouteId, RouteSvc, Scheme,
+    TraceCtx, UpstreamUsed, boxed, empty,
 };
 use crate::routing::{Runtime, strip_spoofable};
 use arc_swap::ArcSwap;
@@ -106,6 +108,73 @@ fn call_route(svc: RouteSvc, req: Req) -> BoxFut2 {
 
 type BoxFut2 = std::pin::Pin<Box<dyn std::future::Future<Output = Resp> + Send>>;
 
+/// Access log, flight recorder and streaming error watch for one response.
+fn observe_response(
+    resp: Resp,
+    shared: &Arc<Shared>,
+    trace: &TraceCtx,
+    parts: &http::request::Parts,
+    ip: IpAddr,
+    start: Instant,
+) -> Resp {
+    let status = resp.status();
+    let trace_id = trace::trace_hex(trace.trace_id);
+    let dur_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let (method, path) = (parts.method.as_str(), parts.uri.path());
+    let fields = (status.as_u16(), dur_ms);
+    if status.is_server_error() {
+        tracing::warn!(target: "access", method, path, status = fields.0, dur_ms, %trace_id, client_ip = %ip);
+    } else if status.is_client_error() {
+        tracing::info!(target: "access", method, path, status = fields.0, dur_ms, %trace_id, client_ip = %ip);
+    } else {
+        tracing::debug!(target: "access", method, path, status = fields.0, dur_ms, %trace_id, client_ip = %ip);
+    }
+    let failure = resp.extensions().get::<ProxyFailure>().cloned();
+    let upstream = resp.extensions().get::<UpstreamUsed>().map(|u| u.0.to_string());
+    let base = {
+        let kind = failure
+            .as_ref()
+            .map(|f| f.kind)
+            .or_else(|| resp.extensions().get::<IncidentKind>().map(|k| k.0))
+            .unwrap_or("http");
+        let mut i = Incident::new(trace_id.clone(), kind);
+        i.status = Some(status.as_u16());
+        i.method = Some(method.to_string());
+        i.host = request_host(&parts.uri, &parts.headers);
+        i.path = Some(path.to_string());
+        i.route_id = parts.extensions.get::<RouteId>().map(|r| r.0.to_string());
+        i.client_ip = Some(ip.to_string());
+        i.upstream = upstream.or_else(|| failure.as_ref().and_then(|f| f.upstream).map(|a| a.to_string()));
+        i.duration_ms = Some(dur_ms);
+        i.detail = failure
+            .as_ref()
+            .map(|f| crate::observe::recorder::truncate(&f.detail, 512));
+        if let Some(ua) = parts
+            .headers
+            .get(header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+        {
+            i = i.with_user_agent(ua);
+        }
+        i
+    };
+    if status.as_u16() >= 400 || failure.is_some() {
+        shared.recorder.record(base.clone());
+    }
+    if resp.extensions().get::<UpstreamUsed>().is_none() {
+        return resp;
+    }
+    let recorder = shared.recorder.clone();
+    resp.map(|body| {
+        let on_error = Box::new(move |msg: String| {
+            let mut i = base;
+            i.kind = "upstream_body_error";
+            recorder.record(i.with_detail(&msg));
+        });
+        boxed(WatchBody::new(body, on_error))
+    })
+}
+
 fn finish(mut resp: Resp, trace: &TraceCtx) -> Resp {
     if let Ok(v) = HeaderValue::from_str(&trace::traceparent(trace)) {
         resp.headers_mut().insert("traceparent", v);
@@ -126,7 +195,7 @@ impl tower::Service<http::Request<hyper::body::Incoming>> for EntryService {
     }
 
     fn call(&mut self, req: http::Request<hyper::body::Incoming>) -> BoxFut {
-        let (peer, scheme, current, _shared) =
+        let (peer, scheme, current, shared) =
             (self.peer, self.scheme, self.current.clone(), self.shared.clone());
         Box::pin(async move {
             let start = Instant::now();
@@ -173,15 +242,7 @@ impl tower::Service<http::Request<hyper::body::Incoming>> for EntryService {
                 strip_spoofable(&mut req);
                 call_route(route.service.clone(), req).await
             };
-            let status = resp.status();
-            let (method, path) = (parts.method.as_str(), parts.uri.path());
-            if status.is_server_error() {
-                tracing::warn!(target: "access", method, path, status = status.as_u16(), dur_ms = start.elapsed().as_millis() as u64, trace_id = %trace::trace_hex(trace.trace_id), client_ip = %ip);
-            } else if status.is_client_error() {
-                tracing::info!(target: "access", method, path, status = status.as_u16(), dur_ms = start.elapsed().as_millis() as u64, trace_id = %trace::trace_hex(trace.trace_id), client_ip = %ip);
-            } else {
-                tracing::debug!(target: "access", method, path, status = status.as_u16(), dur_ms = start.elapsed().as_millis() as u64, trace_id = %trace::trace_hex(trace.trace_id), client_ip = %ip);
-            }
+            let resp = observe_response(resp, &shared, &trace, &parts, ip, start);
             Ok(finish(resp, &trace))
         })
     }

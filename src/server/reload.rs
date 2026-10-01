@@ -73,7 +73,16 @@ pub async fn watch(
         }
         match reload_once(&path, &current, &shared) {
             Ok(routes) => tracing::info!(routes, "config reloaded"),
-            Err(err) => tracing::error!(%err, "config reload failed; keeping previous config"),
+            Err(err) => {
+                tracing::error!(%err, "config reload failed; keeping previous config");
+                shared.recorder.record(
+                    crate::observe::Incident::new(
+                        crate::observe::trace::trace_hex(crate::observe::trace::nz128()),
+                        "config",
+                    )
+                    .with_detail(&err),
+                );
+            }
         }
     }
 }
