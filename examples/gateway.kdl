@@ -18,7 +18,7 @@ route "client.com" "www.client.com" {
     // Fonctionnalités Avancées intégrées
     cache max-size="256MB" stale-while-revalidate=30
     compression zstd=#true brotli=#true
-    geoip database="/var/lib/geoip/GeoLite2-Country.mmdb" block-countries="CN,RU"
+    geoip database="tests/fixtures/GeoIP2-Country-Test.mmdb" block-countries="CN,RU"
 
     fallback status=503 show-incident-id=#true
 }

@@ -5,7 +5,7 @@ pub mod model;
 pub mod model_auth;
 mod parse;
 mod parse_features;
-mod parse_gate;
+pub(crate) mod parse_gate;
 mod parse_jwt;
 mod parse_route;
 mod parse_transform;

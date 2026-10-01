@@ -33,7 +33,11 @@ fn route(body: &str) -> String {
 
 fn specs(file: &str) -> Config {
     let src = std::fs::read_to_string(format!("{}/{file}", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    parse(&src.replace("/var/lib/geoip/GeoLite2-Country.mmdb", GEO)).unwrap()
+    let src = src.replace(
+        "/var/lib/geoip/GeoLite2-Country.mmdb",
+        "tests/fixtures/GeoIP2-Country-Test.mmdb",
+    );
+    parse(&src.replace("tests/fixtures/GeoIP2-Country-Test.mmdb", GEO)).unwrap()
 }
 
 #[test]

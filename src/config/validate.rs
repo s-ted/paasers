@@ -98,10 +98,11 @@ fn check_route(gw: &GatewayCfg, r: &RouteCfg) -> Result<(), ConfigError> {
 
 pub fn validate(cfg: &Config) -> Result<(), ConfigError> {
     let gw = &cfg.gateway;
-    if gw.listen_https == Some(gw.listen_http) {
+    if gw.listen_http.port() != 0 && gw.listen_https == Some(gw.listen_http) {
         return sem("listen: HTTP and HTTPS addresses must differ");
     }
     if let Some(m) = &cfg.mcp
+        && m.listen.port() != 0
         && (m.listen == gw.listen_http || Some(m.listen) == gw.listen_https)
     {
         return sem("mcp-server listen address conflicts with gateway listen");
