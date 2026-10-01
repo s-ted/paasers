@@ -1,0 +1,29 @@
+[Unit]
+Description=paasers edge gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=paasers
+Group=paasers
+ExecStart=/usr/local/bin/paasers run -c /etc/paasers/gateway.kdl
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=2
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+StateDirectory=gateway
+StateDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/etc/paasers /var/lib/geoip
+EnvironmentFile=-/etc/paasers/env
+LimitNOFILE=65536
+MemoryMax=64M
+TimeoutStopSec=35
+
+[Install]
+WantedBy=multi-user.target
