@@ -27,6 +27,8 @@ pub struct Shared {
     /// Actually bound HTTPS port (0 until bound), used for redirects when the configured port is 0.
     pub https_port: std::sync::atomic::AtomicU16,
     pub caches: Arc<crate::cache::CacheRegistry>,
+    pub limiters: Arc<crate::layers::ratelimit::LimiterRegistry>,
+    pub geoip: Arc<crate::layers::geoip::GeoRegistry>,
     /// Gatekeeper state (needs the database for its signing key, so it is set once after startup).
     pub gate: std::sync::OnceLock<Arc<crate::gatekeeper::GateShared>>,
     pub certs: Arc<crate::tls::CertResolver>,
@@ -49,6 +51,8 @@ impl Shared {
             tunnels: Arc::new(AtomicUsize::new(0)),
             https_port: std::sync::atomic::AtomicU16::new(0),
             caches: Arc::new(crate::cache::CacheRegistry::default()),
+            limiters: Arc::new(crate::layers::ratelimit::LimiterRegistry::default()),
+            geoip: Arc::new(crate::layers::geoip::GeoRegistry::default()),
             gate: std::sync::OnceLock::new(),
             certs: Arc::new(crate::tls::CertResolver::default()),
             challenges: Arc::new(crate::tls::ChallengeStore::default()),

@@ -21,6 +21,10 @@ pub enum BuildError {
     Router(String),
     #[error("gatekeeper: {0}")]
     Gatekeeper(String),
+    #[error("jwt: {0}")]
+    Jwt(String),
+    #[error("geoip: {0}")]
+    GeoIp(String),
 }
 
 pub struct RouteRuntime {
@@ -84,6 +88,9 @@ pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> 
             }))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    shared
+        .limiters
+        .retain_routes(&cfg.routes.iter().map(|r| r.id.clone()).collect());
     shared
         .caches
         .retain(&cfg.routes.iter().map(|r| r.id.clone()).collect());

@@ -128,6 +128,7 @@ pub async fn run_shared(
             shutdown.clone(),
         ));
     }
+    tokio::spawn(maintenance(shared.clone(), shutdown.clone()));
     tokio::spawn(shutdown::wait_for_signal(shutdown.clone()));
     let _ = ready.send(BoundAddrs {
         http: http_addr,
@@ -148,4 +149,20 @@ pub async fn run_shared(
     shared.health.shutdown();
     tracing::info!("gateway stopped");
     Ok(())
+}
+
+/// Periodic memory maintenance for per-IP limiters (R9).
+async fn maintenance(shared: Arc<Shared>, shutdown: CancellationToken) {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            _ = tick.tick() => {}
+        }
+        shared.limiters.purge();
+        if let Some(g) = shared.gate.get() {
+            g.purge();
+        }
+    }
 }
