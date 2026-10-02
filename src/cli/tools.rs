@@ -64,17 +64,36 @@ pub fn otpauth_url(issuer: &str, account: &str, b32: &str) -> String {
     format!("otpauth://totp/{i}:{a}?secret={b32}&issuer={i}&algorithm=SHA1&digits=6&period=30")
 }
 
+/// Render `data` as a compact terminal QR code (unicode half blocks).
+/// Modules are drawn with the terminal foreground colour, so on a dark theme the
+/// code is inverted: most authenticator apps scan that fine.
+fn qr_ascii(data: &str) -> Option<String> {
+    use qrcode::render::unicode::Dense1x2;
+    let code = qrcode::QrCode::new(data.as_bytes()).ok()?;
+    Some(code.render::<Dense1x2>().quiet_zone(true).build())
+}
+
 pub fn gen_totp(issuer: &str, account: &str) -> ExitCode {
     let bytes: [u8; 20] = rand::random();
     let b32 = totp_rs::Secret::from(bytes).to_base32();
+    let url = otpauth_url(issuer, account, &b32);
     println!("{b32}");
-    println!("{}", otpauth_url(issuer, account, &b32));
+    println!("{url}");
+    if let Some(qr) = qr_ascii(&url) {
+        println!("\n{qr}");
+    }
     ExitCode::SUCCESS
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn qr_ascii_renders() {
+        let q = qr_ascii("otpauth://totp/a:b?secret=ABC").unwrap();
+        assert!(q.lines().count() > 10 && q.contains('█') || q.contains('▀') || q.contains('▄'));
+    }
 
     #[test]
     fn otpauth_url_encoding() {
