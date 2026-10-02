@@ -268,6 +268,28 @@ async fn origin_mismatch_403() {
     assert_eq!(run(&mut r.svc, ok).await.0.status(), StatusCode::SEE_OTHER);
 }
 
+/// Browsers send `Origin: null` on form POSTs when the page that holds the form was served
+/// with `Referrer-Policy: no-referrer`. The login page must therefore keep a policy that
+/// lets same-origin form submissions carry their real origin, otherwise login is impossible.
+#[tokio::test]
+async fn login_page_referrer_policy_keeps_same_origin_form_posts_working() {
+    let mut r = rig(&cfg());
+    let (resp, _) = run(&mut r.svc, req(Method::GET, "/__gate/login")).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let policy = resp.headers()[header::REFERRER_POLICY].to_str().unwrap();
+    assert_eq!(policy, "same-origin");
+    assert_ne!(policy, "no-referrer", "would make browsers send `Origin: null`");
+}
+
+#[tokio::test]
+async fn null_origin_is_refused() {
+    let mut r = rig(&cfg());
+    let mut f = form("/__gate/login", "password=preview");
+    f.headers_mut()
+        .insert(header::ORIGIN, HeaderValue::from_static("null"));
+    assert_eq!(run(&mut r.svc, f).await.0.status(), StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn open_redirect_is_neutralized() {
     let mut r = rig(&cfg());

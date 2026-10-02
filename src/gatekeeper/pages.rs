@@ -76,7 +76,7 @@ pub fn render(p: &Page<'_>) -> Resp {
     let h = r.headers_mut();
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("same-origin"));
     h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
     let csp = format!(
         "default-src 'none'; style-src 'nonce-{n}'; script-src 'nonce-{n}'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
