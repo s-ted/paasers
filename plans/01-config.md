@@ -51,6 +51,7 @@ pub struct Config { pub gateway: GatewayCfg, pub mcp: Option<McpCfg>, pub routes
 | `storage-path` | `storage-path "<path>"` | `PathBuf` | `/var/lib/gateway/certs.db` |
 | `acme-directory` | `acme-directory "production"\|"staging"\|"<https url>"` | `AcmeDirectory { Production, Staging, Custom(String) }` | `production` |
 | `acme-ca-root` | `acme-ca-root "<pem path>"` | `Option<PathBuf>` (pebble tests) | absent |
+| `certs-dir` | `certs-dir "<directory>"` | `Option<PathBuf>`: local certificates scanned by TLS auto mode (`plans/13` §3) | absent |
 | `default-email` | `default-email "<email>"` | `Option<String>` | absent |
 | `trusted-proxies` | `trusted-proxies "<cidr>"...` | `Vec<ipnet::IpNet>` | empty |
 | `flight-recorder` | `flight-recorder capacity=<u32>` | `flight_recorder_capacity: usize` (1..=100 000) | 500 |
@@ -96,7 +97,7 @@ Children of `route` (all optional except `upstream`):
 | `jwt-validation` | 0..1 | 3.15 |
 | `api-keys` | 0..1 | 3.16 |
 | `transform` | 0..1 | 3.17 |
-| `redirect-https` | 0..1: `redirect-https #false` | `bool`, default `#true` if `tls` present |
+| `redirect-https` | 0..1: `redirect-https #false` | `bool`, default `#true` if `tls` present, whatever the TLS mode |
 
 ### 3.5 `upstream "<ip:port>" [weight=<u32>]`
 * Address: literal `SocketAddr` (IP required, no DNS name: D23). Otherwise error `upstream must be ip:port`.
@@ -125,12 +126,17 @@ Absent ⇒ all defaults (health-check **active by default**, convention).
 ### 3.7 `timeouts request="60s"`
 `request` (max delay between sending the request and receiving the response **headers**): default `60s`, bounds [100ms, 1h]. The connect timeout is fixed (5 s, not configurable, cf. `plans/05` §2). Property `connect` ⇒ error `unknown property` like any other.
 
-### 3.8 `tls`
-`tls [email="<email>"] [cert-file="<pem>" key-file="<pem>"]`
-* ACME mode (default): `email` or `gateway.default-email` required (otherwise error). Wildcard hosts forbidden in ACME mode.
-* Files mode: `cert-file` **and** `key-file` together, read and validated at load (PEM parse + compatible key), reloaded on reload.
+### 3.8 `tls` (superseded by `plans/13-tls-modes.md` §2, summary)
+`tls [email="<email>"] [self-signed=#true] { [staging] }`
+* **auto** mode (default): per host, a valid local certificate from `gateway.certs-dir`, otherwise Let's Encrypt
+  (ACME HTTP-01, `email` or `gateway.default-email`), otherwise a temporary self-signed certificate.
+  Optional child `staging` uses Let's Encrypt staging for this route.
+* **self-signed** mode: `self-signed=#true`, certificate generated in memory; incompatible with `email` and `staging`.
+* `cert-file` / `key-file` are **removed** (error `unknown property`, hint `use gateway certs-dir`).
 ```rust
-pub enum TlsCfg { Acme { email: String }, Files { cert: PathBuf, key: PathBuf } }
+pub enum TlsMode { Auto { acme: Option<AcmeTarget> }, SelfSigned }
+pub struct AcmeTarget { pub email: String, pub staging: bool }
+pub struct TlsCfg { pub mode: TlsMode }
 ```
 
 ### 3.9 `fallback status=503 show-incident-id=#true [title="..."] [message="..."]`
@@ -237,10 +243,10 @@ Durations: `humantime::parse_duration` (accepts `14d`, `15m`, `30s`, `1h 30m`). 
 1. No (normalized) host present in two routes (including the same wildcard). The error cites both routes.
 2. `default-cert` ⇒ host of a route with `tls`.
 3. `listen_http != listen_https`, and ≠ `mcp.listen`.
-4. Every `tls` route in ACME mode: non-wildcard hosts, email defined.
+4. Every host of a `tls` auto route is covered by a local certificate in `certs-dir` **or** ACME is possible for the route (email defined, no wildcard host); a host covered only locally without ACME is a warning (`plans/13` §5.1). `certs-dir`, when set, is a readable directory.
 5. `*-env`: variable present and non-empty (`std::env::var`), read via an injected `&dyn Fn(&str) -> Option<String>` (testable without touching the real environment).
 6. `geoip.database` exists and opens; routes sharing the same path share the same `Arc<Reader>` (deduplication in the runtime builder, not here).
-7. `public-key-file`, `cert-file`, `key-file`, `acme-ca-root`: readable files.
+7. `public-key-file`, `acme-ca-root`: readable files.
 8. Rate-limit `path`: starts with `/`.
 9. Health `timeout < interval`.
 10. `passkey #true` ⇒ `tls` route required (WebAuthn requires a secure context) otherwise error.
@@ -292,7 +298,8 @@ Rust 2024 pitfall: `gen` is a reserved keyword. Never name a function/module `ge
 - `error_position_line_col`: an error on line 3 reports `3:<col>`.
 
 `validate.rs`
-- `duplicate_host_across_routes`, `wildcard_with_acme_rejected`, `passkey_requires_tls`, `default_cert_must_be_tls_route`, `listen_conflicts`.
+- `duplicate_host_across_routes`, `wildcard_without_local_cert_rejected` (replaces `wildcard_with_acme_rejected`), `passkey_requires_tls`, `default_cert_must_be_tls_route`, `listen_conflicts`.
+- TLS mode tests: `plans/13` §9 (config section).
 
 ## 9. DoD P1
 - [ ] All §8 tests pass: `cargo test config::`.

@@ -144,11 +144,12 @@ The `{ ... }` block limits the mutable borrow of `order` by `authorizations()` (
 ```rust
 pub struct CertManager { db: Db, resolver: Arc<CertResolver>, challenges: Arc<ChallengeStore>,
                          recorder: Arc<FlightRecorder>, wanted: watch::Sender<Vec<TlsJob>> }
-pub struct TlsJob { pub route_id: Arc<str>, pub hosts: Vec<String>, pub email: String }
+pub struct TlsJob { pub route_id: Arc<str>, pub hosts: Vec<String>, pub email: String, pub directory: String } // `directory` added by plans/13 §5.2
 ```
 ### 8.1 `start(cfg, ...)` / `reconcile(cfg)`
+> Superseded for certificate selection by `plans/13` §4 (local > ACME > expired local > self-signed) and §5.3 (proactive issuance). The text below remains valid for the ACME-only path.
 For each route with `tls`:
-* **File mode**: read the PEMs, `certified`, `resolver.set(host)` for each exact host, `set_wildcard(parent)` for `*.parent`. Error at startup => exit 2; on reload => route kept with the old cert + `error!`.
+* **File mode**: removed by `plans/13` (replaced by `gateway.certs-dir` and the per-host selection of `plans/13` §4).
 * **ACME mode**: for each host, load from the database; if present and `certified` OK => `resolver.set`; otherwise => `self_signed(hosts)` installed for the missing hosts. Add a `TlsJob`.
 * `default-cert`: `set_default(resolver entry of the host)` after loading (if later issued by ACME, the worker also updates the default if `host == default_cert`).
 * `resolver.remove_not_in(active_hosts)`.
@@ -185,7 +186,7 @@ Unit:
 - `worker::tests::needs_renewal` (pure function: `(now, not_after, missing_hosts) -> bool`).
 
 Integration:
-- `tests/tls.rs::sni_serves_route_cert`: rcgen test CA + leaf (spike code: `CertificateParams::new(vec![..]).signed_by(&leaf_key, &Issuer::new(ca_params, &ca_key))`), route in `cert-file`/`key-file` mode (temporary files), rustls client with the CA as root => handshake + GET 200; h2 negotiated via ALPN.
+- `tests/tls.rs::sni_serves_route_cert` (rewritten in `plans/13` §9 as `local_cert_served_by_sni`, using `certs-dir`): rcgen test CA + leaf (spike code: `CertificateParams::new(vec![..]).signed_by(&leaf_key, &Issuer::new(ca_params, &ca_key))`), certificate files written to a temporary `certs-dir`, rustls client with the CA as root => handshake + GET 200; h2 negotiated via ALPN.
 - `tests/tls.rs::unknown_sni_rejected`.
 - `tests/tls.rs::acme_route_serves_self_signed_before_issuance` (unreachable directory `https://127.0.0.1:1/dir` => handshake with self-signed cert containing the host in SAN; `acme` incident recorded).
 - `tests/acme.rs` (`#[ignore]`, run in CI with pebble, see plans/12): real issuance via pebble, `acme-directory "https://localhost:14000/dir"`, `acme-ca-root "<pebble.minica.pem>"`, pebble configured with `httpPort` = gateway HTTP port; checks cert in database + served via SNI.

@@ -96,6 +96,8 @@ const MIGRATIONS: &[&str] = &[
                                         cred_id BLOB NOT NULL UNIQUE, passkey_json TEXT NOT NULL, label TEXT NOT NULL,
                                         created_at INTEGER NOT NULL, last_used_at INTEGER);
    CREATE INDEX IF NOT EXISTS passkeys_route ON passkeys(route_id);",
+  // v2 (plans/13 §5.2): ACME directory that issued the certificate ('' = unknown, treated as a mismatch)
+  "ALTER TABLE certs ADD COLUMN directory TEXT NOT NULL DEFAULT '';",
 ];
 ```
 Procedure: read `meta.schema_version` (absent = 0); for each migration with index ≥ version, in a transaction: `execute_batch(sql)` then `INSERT OR REPLACE INTO meta VALUES('schema_version', ?)`. Version in database > `MIGRATIONS.len()` ⇒ `StorageError::Corrupt("database created by a newer paasers")` (the binary refuses to start: protects against incompatible rollback).

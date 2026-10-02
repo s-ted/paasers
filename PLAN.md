@@ -91,8 +91,8 @@ A layer not configured on the route **is not inserted** (zero cost), except `Fal
 | D18 | GeoIP | `block-countries` and/or `allow-countries` (mutually exclusive), `inject-header` default `#true` (`X-Country-Code`). IP without result ⇒ `XX`, never blocked by `block`, blocked by `allow`. Blocking ⇒ 403. Database opened once, shared (Arc) between routes by path. |
 | D19 | Compression | Algorithms that can be enabled: `gzip` (default on), `brotli` (default on), `zstd` (default on). Min size 1024 B. No compression if already encoded, images, gRPC, SSE, 101, 204, 304, `Content-Range`. |
 | D20 | Transform | See `plans/10-security-layers.md` §6: `request { set/add/remove/replace }`, `response { set/add/remove/replace }`, `status from=X to=Y`. Regex on header values only (no body: streaming). |
-| D21 | TLS without `tls` on a route | Route served in plain HTTP only on :80; on :443 unknown SNI ⇒ handshake refused. |
-| D22 | ACME challenge | **HTTP-01** served on :80 (simplest, no DNS). TLS-ALPN-01 rejected. Staging/prod configurable (`acme-directory`). Renewal when `not_after - now < 30 d`, check every 12 h, jitter. While waiting for the 1st cert: a temporary **self-signed** certificate is served (avoids a handshake failure). |
+| D21 | TLS without `tls` on a route | Route served in plain HTTP only on :80; on :443 unknown SNI ⇒ handshake refused. TLS modes (auto: local `certs-dir` > ACME > self-signed; or `self-signed=#true`): `plans/13-tls-modes.md`. |
+| D22 | ACME challenge | **HTTP-01** served on :80 (simplest, no DNS). TLS-ALPN-01 rejected. Staging/prod configurable (`acme-directory` globally, `tls { staging }` per route, `plans/13`). Renewal when `not_after - now < 30 d`, check every 12 h, jitter. While waiting for the 1st cert: a temporary **self-signed** certificate is served (avoids a handshake failure). |
 | D23 | Upstream over TLS? | No (private network). Plain HTTP/1.1 upstreams only (YAGNI). Validation: the host must be a literal IP (v4 or v6) + port; warning (not error) if not private (RFC1918/ULA/loopback). |
 | D24 | Hot reload | `SIGHUP` **and** mtime watcher (2 s poll) of the config file. Invalid config ⇒ error log + old config kept. Change of `listen`/`storage-path`/`mcp-server` ⇒ "requires restart" warning, ignored. |
 | D25 | MCP transport | rmcp 3.5 **Streamable HTTP** (successor of SSE), stateless, JSON responses, mounted on hyper at `POST /mcp`. Auth `Authorization: Bearer <token>` checked before rmcp (constant time). If `token` is absent ⇒ the listener must be loopback, otherwise config error. |
@@ -181,7 +181,7 @@ CREATE INDEX IF NOT EXISTS passkeys_route ON passkeys(route_id);
 
 **TLS / ACME**
 10. Missing SNI ⇒ `default-cert` certificate if configured, otherwise handshake refused.
-11. Wildcard as route host (`*.client.com`): accepted for routing; **ACME HTTP-01 cannot issue it** ⇒ config error if `tls` without `cert-file` on a wildcard.
+11. Wildcard as route host (`*.client.com`): accepted for routing; **ACME HTTP-01 cannot issue it** ⇒ config error if no local certificate in `certs-dir` covers it (or use `tls self-signed=#true`), see `plans/13` §5.1.
 12. Let's Encrypt rate limit / ACME failure ⇒ exponential backoff (1 min → 24 h), the temporary/old cert keeps being served, flight-recorder entry `kind=acme`.
 13. Two routes sharing a hostname ⇒ config error (D30).
 14. Certificate in the database for a domain removed from the config ⇒ kept (no automatic deletion), not served.
@@ -261,6 +261,7 @@ SPECS rule respected: during development, never a full `cargo test`; phase P12 r
 | P10 | `plans/10-security-layers.md` | JWT, API key, rate-limit, GeoIP, compression, transform | P5 |
 | P11 | `plans/11-mcp.md` | MCP server + 4 tools | P6, P8 |
 | P12 | `plans/12-testing-release.md` | integration tests, RSS, musl, systemd, README | all |
+| P13 | `plans/13-tls-modes.md` | TLS auto mode (local `certs-dir` > ACME > self-signed), `self-signed` mode, per-route ACME staging, `cert-file`/`key-file` removed (specified, not implemented) | P12 |
 
 Each phase = at least one commit; the binary compiles and `clippy -D warnings` passes **at the end of each phase**.
 
@@ -273,7 +274,7 @@ Each phase = at least one commit; the binary compiles and `clippy -D warnings` p
 | R1 | Budget **< 32 MB RAM** (raised from 20 MB after measuring 21.5 MB with the default threads). **Measured in the spike**: release binary linking all dependencies, rmcp server on hyper, 300 requests ⇒ **VmRSS 15.3 MB** (glibc, 13 threads, without mimalloc). Thin margin; the example's cache `max-size="256MB"` obviously exceeds the target when full. | Medium | Target interpreted as "**at rest, empty cache**". `worker_threads = min(num_cpus, 4)` (reduces arenas/threads vs the 13 measured). mimalloc. Blocking measurement in CI (`scripts/rss.sh`). If exceeded: `worker-threads 2`, then build `--no-default-features` (without webauthn/OpenSSL). |
 | R2 | `webauthn-rs` pulls in **OpenSSL** (C) ⇒ contradicts "pure Rust stack", complicates musl. | Medium | `openssl` vendored on musl (build validated). Future alternative: `passkey-rs`/in-house ES256 implementation (not retained: security). Cargo feature `passkey` (default on) to be able to compile without it. |
 | R3 | rmcp 3.x evolves fast (protocol `2026-07-28` without `initialize`). | Low | Stateless JSON mode tested with `initialize` 2025-11-25 and direct calls. Pinned dependency `rmcp = "=3.5.0"` + committed `Cargo.lock`. |
-| R4 | ACME HTTP-01 requires :80 reachable from the Internet. | Medium | Documented. Alternative: manual `cert-file`/`key-file` per route (supported). DNS-01 out of scope. |
+| R4 | ACME HTTP-01 requires :80 reachable from the Internet. | Medium | Documented. Alternative: local certificates in `gateway.certs-dir`, preferred over ACME and with ACME as automatic fallback (`plans/13`). DNS-01 out of scope. |
 | R5 | rustc HRTB bug "Send not general enough" in generic async middlewares (observed in the spike). | High if ignored | **Rule**: all Services are concrete over `RouteSvc` (validated pattern, `plans/00` §5). |
 | R6 | hyper-util client refuses `HTTP/2` requests (observed). | High if ignored | Force `*req.version_mut() = HTTP_11` in the proxy (`plans/05`). |
 | R7 | The SPECS example has a truncated PSK hash `$argon2id$...$...` ⇒ invalid. | Low | `paasers check` rejects it with an explicit message; test fixture = real generated hash. The "SPECS example parses" test replaces the hash. |

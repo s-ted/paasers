@@ -32,7 +32,7 @@ Each integration test: `#[tokio::test(flavor = "multi_thread", worker_threads = 
 | `tests/reload.rs` | `reload_on_file_change` (write new file ⇒ new route served ≤ 5 s), `invalid_reload_keeps_old`, `inflight_request_survives_reload`, `health_state_survives_reload` |
 | `tests/mcp.rs` | plans/11 §7 |
 | `tests/acme.rs` | `#[ignore]`: real issuance via pebble (§4) |
-| `tests/specs_example.rs` | `specs_example_parses` (verbatim fixture), `specs_example_serves` (replaces upstreams with local backends, `tls` with a test cert-file, geoip with the fixture; checks routing of the 3 hosts, gatekeeper on `dev.client.com`, zstd compression, JWT required) |
+| `tests/specs_example.rs` | `specs_example_parses` (verbatim fixture), `specs_example_serves` (replaces upstreams with local backends, `tls` with a test certificate in a temporary `certs-dir` (`plans/13`), formerly cert-file, geoip with the fixture; checks routing of the 3 hosts, gatekeeper on `dev.client.com`, zstd compression, JWT required) |
 
 ## 3. Fixtures (`tests/fixtures/`, committed)
 
@@ -156,9 +156,9 @@ Sections: Overview (1 paragraph); Build (`cargo zigbuild ...`); Quick start (5-l
 
 ## 9. Documented manual tests (not automatable)
 
-1. **Passkeys**: Chrome ⇒ DevTools ⇒ ⋮ More tools ⇒ WebAuthn ⇒ "Enable virtual authenticator environment" ⇒ add a `ctap2` / `internal` authenticator with `resident key` + `user verification`; open `https://dev.client.test` (route `tls cert-file` with imported test CA) ⇒ PSK login ⇒ passkey page ⇒ Register ⇒ logout ⇒ "Sign in with a passkey" ⇒ access.
+1. **Passkeys**: Chrome ⇒ DevTools ⇒ ⋮ More tools ⇒ WebAuthn ⇒ "Enable virtual authenticator environment" ⇒ add a `ctap2` / `internal` authenticator with `resident key` + `user verification`; open `https://dev.client.test` (route `tls` with a certificate from the imported test CA placed in `certs-dir`, `plans/13`) ⇒ PSK login ⇒ passkey page ⇒ Register ⇒ logout ⇒ "Sign in with a passkey" ⇒ access.
 2. **Claude Desktop / Cursor**: config §plans/11 §6 ⇒ ask "inspect incident <ID>".
-3. **Let's Encrypt staging** on a real VM with public DNS (`acme-directory "staging"`).
+3. **Let's Encrypt staging** on a real VM with public DNS: `tls { staging }` on one route (`plans/13`), or `acme-directory "staging"` globally.
 
 ## 10. DoD P12 (= global DoD PLAN.md §10)
 - [ ] CI steps §5 1-6, 8, 9 green locally; step 7 green in CI (or documented if network unavailable).

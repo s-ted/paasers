@@ -74,10 +74,10 @@ Output:
    "upstreams":[{"addr":"10.0.1.10:8080","weight":90,"healthy":true,"consecutive_failures":0,"last_change":"2026-09-30T12:00:00.000Z","last_error":null}],
    "healthy_upstreams":1,"total_upstreams":2,
    "cache":{"entries":12,"weight_bytes":34567,"capacity_bytes":256000000,"hits":100,"misses":20,"stale":3,"bypass":5},
-   "certificates":[{"domain":"client.com","not_after":"2026-12-29T00:00:00.000Z","days_left":90,"self_signed":false}],
+   "certificates":[{"domain":"client.com","source":"local","not_after":"2026-12-29T00:00:00.000Z","days_left":90,"path":"/etc/paasers/certs/fullchain.pem","acme_directory":null}],
    "features":["cache","compression","geoip","fallback"]}]}
 ```
-`cache` = `null` if not configured. `certificates`: read from the database (`storage::list_certs`); a domain without a database row but in ACME mode ⇒ `{"domain":..,"not_after":null,"days_left":null,"self_signed":true}`. Unknown route ⇒ `tool_error("unknown route")`.
+`cache` = `null` if not configured. `certificates`: one entry per host with the **selected** source (`plans/13` §7): `source` ∈ `local` | `acme` | `local-expired` | `self-signed`, `path` for local sources, `acme_directory` for ACME. Unknown route ⇒ `tool_error("unknown route")`.
 
 ### 4.2 `query_flight_recorder`
 Description: "Lists the latest failed requests (4xx/5xx/timeouts) and events (health, acme, config), most recent first."
@@ -99,6 +99,7 @@ Output: `{"id":"...","found":true,"entries":[Incident...],"route":<route object 
 | `auth` | "Authentication failure (gatekeeper/JWT/API key)." |
 | `geo_blocked` | "Country blocked by the GeoIP rule." |
 | `payload_too_large` | "Request body larger than limits max-body." |
+| `tls_fallback` | "Certificate source changed for this host: check certs-dir and ACME." |
 | other | "See detail." |
 Not found (evicted from the ring buffer or unknown) ⇒ `{"id":"...","found":false,"entries":[],"route":null,"hint":"Unknown incident or evicted from the flight recorder (capacity N)."}` (**not** a tool error).
 
