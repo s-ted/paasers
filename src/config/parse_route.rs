@@ -4,7 +4,6 @@ use super::kdl_ext::{Env, NodeCtx};
 use super::model::*;
 use super::{parse_features as feat, parse_gate, units};
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -53,7 +52,10 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
     if upstreams.is_empty() {
         return Err(n.err("route needs at least one upstream"));
     }
-    let tls = scope.single("tls")?.map(|t| parse_tls(&t, gw)).transpose()?;
+    let tls = scope
+        .single("tls")?
+        .map(|t| super::parse_tls::parse_tls(&t, gw, &hosts))
+        .transpose()?;
     let redirect_https = match scope.single("redirect-https")? {
         Some(r) => {
             r.check_args(1, 1)?;
@@ -139,32 +141,6 @@ fn parse_upstream(n: &NodeCtx<'_>) -> Result<UpstreamCfg, ConfigError> {
         return Err(n.err("upstream weight must be in 0..=1000"));
     }
     Ok(UpstreamCfg { addr, weight })
-}
-
-fn parse_tls(n: &NodeCtx<'_>, gw: &GatewayCfg) -> Result<TlsCfg, ConfigError> {
-    n.check_args(0, 0)?;
-    n.check_props(&["email", "cert-file", "key-file"])?;
-    match (n.prop_str("cert-file")?, n.prop_str("key-file")?) {
-        (Some(c), Some(k)) => {
-            if n.prop("email").is_some() {
-                return Err(n.err("tls: `email` cannot be combined with cert-file/key-file"));
-            }
-            Ok(TlsCfg::Files {
-                cert: PathBuf::from(c),
-                key: PathBuf::from(k),
-            })
-        }
-        (None, None) => {
-            let email = n
-                .prop_str("email")?
-                .map(str::to_string)
-                .or_else(|| gw.default_email.clone());
-            email
-                .map(|email| TlsCfg::Acme { email })
-                .ok_or_else(|| n.err("tls requires `email` or gateway `default-email`"))
-        }
-        _ => Err(n.err("tls: cert-file and key-file must be given together")),
-    }
 }
 
 fn parse_health(n: &NodeCtx<'_>) -> Result<HealthCfg, ConfigError> {

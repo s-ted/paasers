@@ -2,7 +2,8 @@
 use crate::cache::Purge;
 use crate::observe::Incident;
 use crate::routing::{RouteRuntime, Runtime};
-use crate::storage::{certs::CertRecord, now_unix};
+use crate::storage::now_unix;
+use crate::tls::HostCert;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -30,24 +31,27 @@ fn features(r: &RouteRuntime) -> Vec<&'static str> {
     .collect()
 }
 
-fn certificates(r: &RouteRuntime, certs: &[CertRecord]) -> Vec<Value> {
+pub type CertReport = std::collections::HashMap<String, HostCert>;
+
+fn certificates(r: &RouteRuntime, certs: &CertReport) -> Vec<Value> {
     if r.cfg.tls.is_none() {
         return Vec::new();
     }
     let now = now_unix();
     r.hosts
         .iter()
-        .map(|h| match certs.iter().find(|c| &c.domain == h) {
+        .map(|h| match certs.get(h) {
             Some(c) => json!({
-                "domain": h, "not_after": rfc3339(c.not_after),
-                "days_left": (c.not_after - now).div_euclid(86_400), "self_signed": false,
+                "domain": h, "source": c.source, "not_after": rfc3339(c.not_after),
+                "days_left": (c.not_after - now).div_euclid(86_400),
+                "path": c.path, "acme_directory": c.acme_directory,
             }),
-            None => json!({"domain": h, "not_after": null, "days_left": null, "self_signed": true}),
+            None => json!({"domain": h, "source": null, "not_after": null, "days_left": null}),
         })
         .collect()
 }
 
-pub fn route_json(r: &RouteRuntime, certs: &[CertRecord]) -> Value {
+pub fn route_json(r: &RouteRuntime, certs: &CertReport) -> Value {
     let ups: Vec<Value> = r
         .balancer
         .upstreams
@@ -59,9 +63,9 @@ pub fn route_json(r: &RouteRuntime, certs: &[CertRecord]) -> Value {
             })
         })
         .collect();
-    let tls = match &r.cfg.tls {
-        Some(crate::config::TlsCfg::Acme { .. }) => json!("acme"),
-        Some(crate::config::TlsCfg::Files { .. }) => json!("files"),
+    let tls = match r.cfg.tls.as_ref().map(|t| &t.mode) {
+        Some(crate::config::TlsMode::Auto { .. }) => json!("auto"),
+        Some(crate::config::TlsMode::SelfSigned) => json!("self-signed"),
         None => Value::Null,
     };
     json!({
@@ -84,7 +88,7 @@ pub fn find_route<'a>(rt: &'a Runtime, name: &str) -> Option<&'a Arc<RouteRuntim
 pub fn status_json(
     rt: &Runtime,
     route: Option<&str>,
-    certs: &[CertRecord],
+    certs: &CertReport,
     uptime_s: u64,
     tunnels: usize,
 ) -> Result<Value, String> {
@@ -125,6 +129,7 @@ pub fn hint(last: &Incident) -> String {
         "rate_limited" => "Client limited by rate-limit.".into(),
         "auth" => "Authentication failure (gatekeeper/JWT/API key).".into(),
         "geo_blocked" => "Country blocked by the GeoIP rule.".into(),
+        "tls_fallback" => "Certificate source changed for this host: check certs-dir and ACME.".into(),
         "payload_too_large" => "Request body larger than limits max-body.".into(),
         _ => "See detail.".into(),
     }
@@ -168,7 +173,7 @@ mod tests {
         rt.table.lookup("a.com").unwrap().balancer.upstreams[1]
             .health
             .report_failure_passive();
-        let v = status_json(&rt, None, &[], 5, 2).unwrap();
+        let v = status_json(&rt, None, &CertReport::new(), 5, 2).unwrap();
         assert_eq!(
             (
                 v["generation"].as_u64(),
@@ -190,36 +195,43 @@ mod tests {
                 && a["features"].as_array().unwrap().contains(&json!("compression"))
         );
         assert!(v["routes"][1]["cache"].is_null());
-        assert!(status_json(&rt, Some("www.a.com"), &[], 0, 0).unwrap()["routes"][0]["id"] == "a.com");
+        assert!(
+            status_json(&rt, Some("www.a.com"), &CertReport::new(), 0, 0).unwrap()["routes"][0]["id"]
+                == "a.com"
+        );
         assert_eq!(
-            status_json(&rt, Some("nope"), &[], 0, 0).unwrap_err(),
+            status_json(&rt, Some("nope"), &CertReport::new(), 0, 0).unwrap_err(),
             "unknown route"
         );
     }
 
     #[test]
-    fn certificates_report_expiry_and_self_signed() {
-        let src = "gateway {\n listen \":80\" \":443\"\n}\nroute \"a.com\" \"www.a.com\" {\n tls email=\"x@y.z\"\n upstream \"10.0.0.1:80\"\n}";
+    fn certificates_report_source_and_expiry() {
+        let src = "gateway {\n listen \":80\" \":443\"\n default-email \"x@y.z\"\n}\nroute \"a.com\" \"www.a.com\" {\n tls\n upstream \"10.0.0.1:80\"\n}";
         let cfg = Arc::new(parse_str(src, &|_| None).unwrap());
         let rt = crate::routing::build(&cfg, &Shared::new()).unwrap();
-        let rec = CertRecord {
-            domain: "a.com".into(),
-            cert_pem: String::new(),
-            key_pem: String::new(),
-            not_after: now_unix() + 90 * 86_400 + 5,
-            issued_at: 0,
-        };
-        let v = status_json(&rt, None, &[rec], 0, 0).unwrap();
+        let mut rep = CertReport::new();
+        rep.insert(
+            "a.com".into(),
+            HostCert {
+                source: "local",
+                not_after: now_unix() + 90 * 86_400 + 5,
+                path: Some("/c/full.pem".into()),
+                acme_directory: None,
+            },
+        );
+        let v = status_json(&rt, None, &rep, 0, 0).unwrap();
         let c = &v["routes"][0]["certificates"];
         assert_eq!(
-            (c[0]["days_left"].as_i64(), c[0]["self_signed"].as_bool()),
-            (Some(90), Some(false))
+            (
+                c[0]["days_left"].as_i64(),
+                c[0]["source"].as_str(),
+                c[0]["path"].as_str()
+            ),
+            (Some(90), Some("local"), Some("/c/full.pem"))
         );
-        assert_eq!(
-            (c[1]["domain"].as_str(), c[1]["self_signed"].as_bool()),
-            (Some("www.a.com"), Some(true))
-        );
-        assert_eq!(v["routes"][0]["tls"], "acme");
+        assert!(c[1]["source"].is_null() && c[1]["domain"] == "www.a.com");
+        assert_eq!(v["routes"][0]["tls"], "auto");
     }
 
     #[test]
@@ -243,6 +255,7 @@ mod tests {
             "auth",
             "geo_blocked",
             "payload_too_large",
+            "tls_fallback",
         ] {
             assert_ne!(hint(&mk(k)), "See detail.", "{k}");
         }

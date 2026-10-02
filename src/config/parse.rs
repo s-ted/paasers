@@ -13,6 +13,7 @@ const GATEWAY_NODES: &[&str] = &[
     "acme-directory",
     "acme-ca-root",
     "default-email",
+    "certs-dir",
     "trusted-proxies",
     "flight-recorder",
     "log",
@@ -30,6 +31,7 @@ pub fn default_gateway() -> GatewayCfg {
         acme_directory: AcmeDirectory::Production,
         acme_ca_root: None,
         default_email: None,
+        certs_dir: None,
         trusted_proxies: Vec::new(),
         flight_recorder_capacity: 500,
         log: LogCfg {
@@ -89,6 +91,9 @@ pub fn parse_gateway(n: &NodeCtx<'_>) -> Result<GatewayCfg, ConfigError> {
     }
     if let Some(c) = scope.single("acme-ca-root")? {
         g.acme_ca_root = Some(PathBuf::from(c.one_str()?));
+    }
+    if let Some(c) = scope.single("certs-dir")? {
+        g.certs_dir = Some(PathBuf::from(c.one_str()?));
     }
     if let Some(c) = scope.single("default-email")? {
         g.default_email = Some(c.one_str()?.to_string());

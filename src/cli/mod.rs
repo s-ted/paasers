@@ -63,6 +63,7 @@ fn run(path: PathBuf) -> ExitCode {
         }
     };
     init_logs(&cfg.gateway);
+    config::warnings(&cfg).iter().for_each(|w| tracing::warn!("{w}"));
     let threads = cfg
         .gateway
         .worker_threads
@@ -97,6 +98,9 @@ fn run(path: PathBuf) -> ExitCode {
 fn check(path: PathBuf) -> ExitCode {
     match config::load(&path) {
         Ok(c) => {
+            config::warnings(&c)
+                .iter()
+                .for_each(|w| eprintln!("warning: {w}"));
             println!("OK: {} routes", c.routes.len());
             ExitCode::SUCCESS
         }

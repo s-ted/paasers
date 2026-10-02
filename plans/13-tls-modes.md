@@ -1,6 +1,6 @@
 # P13: TLS modes (local certificate directory, self-signed, ACME staging per route)
 
-> Status: **specified, not implemented**. Implements after P12 under the usual rule: `cargo check`, `cargo test`
+> Status: **implemented** (commit `P13: tls modes`). Implemented after P12 under the usual rule: `cargo check`, `cargo test`
 > and `cargo clippy --all-targets -- -D warnings` (with and without `passkey`) green before the commit `P13: tls modes`.
 > This plan **supersedes** the TLS parts of `plans/01` §3.8 and `plans/07` §8.1 where they conflict (sub-plan > PLAN.md).
 
@@ -232,7 +232,7 @@ Staging:
   Real Let's Encrypt staging cannot run in CI and stays a manual test (`plans/12` §9).
 
 ## 10. DoD P13
-- [ ] §9 tests green, `cargo check` / `cargo test` / `cargo clippy --all-targets -- -D warnings` green, with and
+- [x] §9 tests green, `cargo check` / `cargo test` / `cargo clippy --all-targets -- -D warnings` green, with and
       without `--no-default-features`; `scripts/ci.sh` green.
-- [ ] `examples/gateway.kdl` and `tests/fixtures/specs_verbatim.kdl` still parse (they only use `tls email=`).
-- [ ] README "Configuration reference" and "Known limitations" updated. Commit `P13: tls modes`.
+- [x] `examples/gateway.kdl` and `tests/fixtures/specs_verbatim.kdl` still parse (they only use `tls email=`).
+- [x] README "Configuration reference" and "Known limitations" updated. Commit `P13: tls modes`.

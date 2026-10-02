@@ -81,7 +81,9 @@ The first host is the route id. Each host belongs to one route. `*.example.com` 
 | `upstream "<ip:port>" [weight=<0..1000>]` | at least one, literal IP only, weight 0 drains |
 | `health-check path interval timeout unhealthy-after healthy-after mode enabled` | active by default: `GET /` every 5s, below 500 is healthy, `mode="tcp"` for a connect probe |
 | `timeouts request="60s"` | time to receive the response headers |
-| `tls [email=..] [cert-file=.. key-file=..]` | ACME by default, or your own PEM files |
+| `tls [email=..] { staging }` | auto: valid certificate from `certs-dir`, else Let's Encrypt, else temporary self-signed. `staging` uses Let's Encrypt staging for this route |
+| `tls self-signed=#true` | in-memory self-signed certificate (new on every restart), wildcards allowed |
+| `certs-dir "<dir>"` (gateway) | directory scanned for PEM certificates and keys (any file names, paired by public key, matched by SAN) |
 | `redirect-https #false` | redirect is on by default for TLS routes |
 | `fallback status=503 show-incident-id=#true title message on` | maintenance page when the backend fails |
 | `cache max-size stale-while-revalidate stale-if-error default-ttl max-object-size` | shared RFC 9111 cache |
@@ -154,7 +156,7 @@ Manual checks that cannot be automated:
 
 * Upstreams are plain HTTP over a private network, addressed by literal IP.
 * The cache is in memory (lost on restart), one variant per URL, no coalescing of concurrent misses.
-* ACME uses HTTP-01 only, so wildcard hosts need `cert-file`/`key-file`.
+* ACME uses HTTP-01 only, so wildcard hosts need a local certificate in `certs-dir` (or `tls self-signed=#true`). `cert-file`/`key-file` were removed in favour of `certs-dir`.
 * WebSocket works over HTTP/1.1 only.
 * Passkeys pull in OpenSSL (vendored on musl). Build with `--no-default-features` to avoid it.
 

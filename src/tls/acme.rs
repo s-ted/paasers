@@ -1,13 +1,12 @@
 //! ACME account handling and certificate orders (HTTP-01), via instant-acme.
 use super::pem::{certified, not_after_unix};
-use super::{CertResolver, ChallengeStore, TlsError};
-use crate::config::{AcmeDirectory, GatewayCfg};
+use super::{ChallengeStore, TlsError};
+use crate::config::AcmeDirectory;
 use crate::storage::{Db, certs::CertRecord, now_unix};
 use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, LetsEncrypt, NewAccount,
     NewOrder, OrderStatus, RetryPolicy,
 };
-use std::sync::Arc;
 use std::time::Duration;
 
 pub fn directory_url(d: &AcmeDirectory) -> String {
@@ -19,9 +18,14 @@ pub fn directory_url(d: &AcmeDirectory) -> String {
 }
 
 /// Loads the stored account for the directory, or registers a new one.
-pub async fn account(gw: &GatewayCfg, db: &Db, email: &str) -> Result<Account, TlsError> {
-    let dir = directory_url(&gw.acme_directory);
-    let builder = match &gw.acme_ca_root {
+pub async fn account(
+    ca_root: Option<&std::path::Path>,
+    dir: &str,
+    db: &Db,
+    email: &str,
+) -> Result<Account, TlsError> {
+    let dir = dir.to_string();
+    let builder = match ca_root {
         Some(p) => Account::builder_with_root(p)?,
         None => Account::builder()?,
     };
@@ -40,12 +44,12 @@ pub async fn account(gw: &GatewayCfg, db: &Db, email: &str) -> Result<Account, T
     Ok(acct)
 }
 
-/// Orders one certificate covering all `hosts`, stores it under each host and installs it in the resolver.
+/// Orders one certificate covering all `hosts` and stores it under each host with its `directory`.
 pub async fn issue(
     account: &Account,
     hosts: &[String],
+    directory: &str,
     db: &Db,
-    resolver: &CertResolver,
     challenges: &ChallengeStore,
 ) -> Result<(), TlsError> {
     let ids: Vec<Identifier> = hosts.iter().map(|h| Identifier::Dns(h.clone())).collect();
@@ -83,7 +87,7 @@ pub async fn issue(
     }
     let key_pem = order.finalize().await?;
     let chain_pem = order.poll_certificate(&retry).await?;
-    let key = Arc::new(certified(&chain_pem, &key_pem)?);
+    certified(&chain_pem, &key_pem)?;
     let not_after = not_after_unix(&chain_pem)?;
     for h in hosts {
         let rec = CertRecord {
@@ -92,9 +96,9 @@ pub async fn issue(
             key_pem: key_pem.clone(),
             not_after,
             issued_at: now_unix(),
+            directory: directory.to_string(),
         };
         db.put_cert(rec).await?;
-        resolver.set(h, key.clone());
     }
     tracing::info!(hosts = ?hosts, not_after, "certificate issued");
     Ok(())

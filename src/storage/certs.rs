@@ -8,13 +8,15 @@ pub struct CertRecord {
     pub key_pem: String,
     pub not_after: i64,
     pub issued_at: i64,
+    /// ACME directory URL that issued the certificate (empty for rows predating migration v2).
+    pub directory: String,
 }
 
 impl Db {
     pub async fn list_certs(&self) -> Result<Vec<CertRecord>, StorageError> {
         self.call(|c| {
             let mut st = c.prepare(
-                "SELECT domain, cert_pem, key_pem, not_after, issued_at FROM certs ORDER BY domain",
+                "SELECT domain, cert_pem, key_pem, not_after, issued_at, directory FROM certs ORDER BY domain",
             )?;
             st.query_map([], |r| {
                 Ok(CertRecord {
@@ -23,6 +25,7 @@ impl Db {
                     key_pem: r.get(2)?,
                     not_after: r.get(3)?,
                     issued_at: r.get(4)?,
+                    directory: r.get(5)?,
                 })
             })?
             .collect()
@@ -33,8 +36,9 @@ impl Db {
     pub async fn get_cert(&self, domain: &str) -> Result<Option<CertRecord>, StorageError> {
         let d = domain.to_string();
         self.call(move |c| {
-            let mut st =
-                c.prepare("SELECT cert_pem, key_pem, not_after, issued_at FROM certs WHERE domain = ?1")?;
+            let mut st = c.prepare(
+                "SELECT cert_pem, key_pem, not_after, issued_at, directory FROM certs WHERE domain = ?1",
+            )?;
             let mut rows = st.query_map([&d], |r| {
                 Ok(CertRecord {
                     domain: d.clone(),
@@ -42,6 +46,7 @@ impl Db {
                     key_pem: r.get(1)?,
                     not_after: r.get(2)?,
                     issued_at: r.get(3)?,
+                    directory: r.get(4)?,
                 })
             })?;
             rows.next().transpose()
@@ -52,10 +57,11 @@ impl Db {
     pub async fn put_cert(&self, rec: CertRecord) -> Result<(), StorageError> {
         self.call(move |c| {
             c.execute(
-                "INSERT INTO certs(domain, cert_pem, key_pem, not_after, issued_at) VALUES(?1,?2,?3,?4,?5)
+                "INSERT INTO certs(domain, cert_pem, key_pem, not_after, issued_at, directory) VALUES(?1,?2,?3,?4,?5,?6)
                  ON CONFLICT(domain) DO UPDATE SET cert_pem=excluded.cert_pem, key_pem=excluded.key_pem,
-                                                   not_after=excluded.not_after, issued_at=excluded.issued_at",
-                (&rec.domain, &rec.cert_pem, &rec.key_pem, rec.not_after, rec.issued_at),
+                                                   not_after=excluded.not_after, issued_at=excluded.issued_at,
+                                                   directory=excluded.directory",
+                (&rec.domain, &rec.cert_pem, &rec.key_pem, rec.not_after, rec.issued_at, &rec.directory),
             )
             .map(|_| ())
         })
@@ -74,6 +80,7 @@ mod tests {
             key_pem: "K".into(),
             not_after: na,
             issued_at: 1,
+            directory: String::new(),
         }
     }
 

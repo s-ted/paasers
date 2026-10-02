@@ -42,6 +42,7 @@ pub struct GatewayCfg {
     pub acme_directory: AcmeDirectory,
     pub acme_ca_root: Option<PathBuf>,
     pub default_email: Option<String>,
+    pub certs_dir: Option<PathBuf>,
     pub trusted_proxies: Vec<IpNet>,
     pub flight_recorder_capacity: usize,
     pub log: LogCfg,
@@ -78,9 +79,23 @@ pub struct RouteCfg {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TlsCfg {
-    Acme { email: String },
-    Files { cert: PathBuf, key: PathBuf },
+pub struct TlsCfg {
+    pub mode: TlsMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TlsMode {
+    /// Local certificate from `certs-dir`, else ACME, else a temporary self-signed certificate.
+    Auto { acme: Option<AcmeTarget> },
+    /// In-memory generated certificate, never ACME.
+    SelfSigned,
+}
+
+/// Present only when ACME is possible for the route (email known, no wildcard host).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcmeTarget {
+    pub email: String,
+    pub staging: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

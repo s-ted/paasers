@@ -86,21 +86,17 @@ async fn specs_example_serves() {
         .signed_by(&leaf_key, &Issuer::new(ca, &ca_key))
         .unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let (cert, key) = (dir.path().join("c.pem"), dir.path().join("k.pem"));
-    std::fs::write(&cert, leaf.pem()).unwrap();
-    std::fs::write(&key, leaf_key.serialize_pem()).unwrap();
+    let certs = dir.path().join("certs");
+    std::fs::create_dir(&certs).unwrap();
+    std::fs::write(certs.join("fullchain.pem"), leaf.pem()).unwrap();
+    std::fs::write(certs.join("privkey.pem"), leaf_key.serialize_pem()).unwrap();
     let api_hash = "47bd0e2f856fe258ebba4d00930ab811d0c004dafae068c9d72511ca3512cca6";
-    let tls = format!(
-        "tls cert-file=\"{}\" key-file=\"{}\"",
-        cert.display(),
-        key.display()
-    );
     let src = VERBATIM
         .replace("/var/lib/geoip/GeoLite2-Country.mmdb", GEO)
         .replace("listen \":80\" \":443\"", "listen \"127.0.0.1:0\" \"127.0.0.1:0\"")
         .replace("storage-path \"/var/lib/gateway/certs.db\"", &format!("storage-path \"{}\"", dir.path().join("db").display()))
         .replace("listen \"127.0.0.1:9090\"", "listen \"127.0.0.1:0\"")
-        .replace("tls email=\"admin@monpaas.net\"", &tls)
+        .replace("gateway {", &format!("gateway {{\n    certs-dir \"{}\"", certs.display()))
         .replace("\"10.0.1.10:8080\"", &format!("\"{backend}\""))
         .replace("\"10.0.1.20:8080\"", &format!("\"{backend2}\""))
         .replace("\"10.0.1.11:8080\"", &format!("\"{backend}\""))

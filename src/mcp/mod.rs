@@ -22,6 +22,7 @@ pub struct McpState {
     pub db: Db,
     pub started_at: SystemTime,
     pub tunnels: Arc<AtomicUsize>,
+    pub certs: crate::tls::CertManager,
 }
 
 /// Binds the listener and returns the bound address plus the serving task.

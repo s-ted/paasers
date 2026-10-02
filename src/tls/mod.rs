@@ -1,23 +1,29 @@
 //! TLS: SNI certificate resolver, self-signed bootstrap certificates and ACME (HTTP-01) issuance.
 pub mod acme;
 pub mod challenge;
+pub mod local;
 pub mod pem;
+mod refresh;
 pub mod resolver;
+pub mod select;
 pub mod selfsigned;
+mod state;
 mod worker;
 
 pub use challenge::ChallengeStore;
 pub use resolver::CertResolver;
 
-use crate::config::{Config, GatewayCfg, RouteCfg, TlsCfg};
+use crate::config::{Config, TlsCfg, TlsMode};
 use crate::observe::{FlightRecorder, Incident, trace};
 use crate::storage::{Db, StorageError};
-use arc_swap::ArcSwapOption;
-use rustls::sign::CertifiedKey;
-use std::collections::HashSet;
+use arc_swap::ArcSwap;
+use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::watch;
+use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
+
+pub use state::HostCert;
+use state::{HostState, State, TlsRoute};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TlsError {
@@ -41,22 +47,22 @@ pub enum TlsError {
     Order(String),
 }
 
-/// One ACME order: all hosts of a route share a single certificate.
-#[derive(Debug, Clone)]
-pub struct TlsJob {
-    pub route_id: Arc<str>,
-    pub hosts: Vec<String>,
-    pub email: String,
-}
-
 pub struct CertManagerInner {
     pub(crate) db: Db,
     pub(crate) resolver: Arc<CertResolver>,
     pub(crate) challenges: Arc<ChallengeStore>,
     pub(crate) recorder: Arc<FlightRecorder>,
-    pub(crate) gw: GatewayCfg,
-    pub(crate) default_cert: ArcSwapOption<String>,
-    pub(crate) wanted: watch::Sender<Arc<Vec<TlsJob>>>,
+    pub(crate) state: Mutex<State>,
+    pub(crate) wake: Notify,
+    pub(crate) report: ArcSwap<HashMap<String, HostCert>>,
+}
+
+impl CertManagerInner {
+    pub(crate) fn incident(&self, kind: &'static str, route: &str, detail: &str) {
+        let mut i = Incident::new(trace::trace_hex(trace::nz128()), kind).with_detail(detail);
+        i.route_id = Some(route.to_string());
+        self.recorder.record(i);
+    }
 }
 
 #[derive(Clone)]
@@ -74,15 +80,36 @@ pub fn server_config(resolver: Arc<CertResolver>) -> Result<rustls::ServerConfig
     Ok(c)
 }
 
-fn read_files(cert: &std::path::Path, key: &std::path::Path) -> Result<Arc<CertifiedKey>, TlsError> {
-    Ok(Arc::new(pem::certified(
-        &std::fs::read_to_string(cert)?,
-        &std::fs::read_to_string(key)?,
-    )?))
+/// ACME directory URL for a route: `staging` forces Let's Encrypt staging, else the global directory.
+pub fn directory_for_route(cfg: &Config, staging: bool) -> String {
+    if staging {
+        acme::directory_url(&crate::config::AcmeDirectory::Staging)
+    } else {
+        acme::directory_url(&cfg.gateway.acme_directory)
+    }
+}
+
+fn tls_routes(cfg: &Config) -> Vec<TlsRoute> {
+    cfg.routes
+        .iter()
+        .filter_map(|r| {
+            let TlsCfg { mode } = r.tls.as_ref()?;
+            let directory = match mode {
+                TlsMode::Auto { acme: Some(a) } => Some(directory_for_route(cfg, a.staging)),
+                _ => None,
+            };
+            Some(TlsRoute {
+                id: r.id.clone(),
+                hosts: r.hosts.clone(),
+                mode: mode.clone(),
+                directory,
+            })
+        })
+        .collect()
 }
 
 impl CertManager {
-    /// Loads certificates, installs bootstrap certificates and starts the renewal worker.
+    /// Selects the initial certificates and starts the renewal worker.
     pub async fn start(
         cfg: &Config,
         db: Db,
@@ -91,82 +118,113 @@ impl CertManager {
         recorder: Arc<FlightRecorder>,
         shutdown: CancellationToken,
     ) -> Result<Self, TlsError> {
-        let (wanted, _) = watch::channel(Arc::new(Vec::new()));
         let inner = Arc::new(CertManagerInner {
             db,
             resolver,
             challenges,
             recorder,
-            gw: cfg.gateway.clone(),
-            default_cert: ArcSwapOption::empty(),
-            wanted,
+            state: Mutex::new(State {
+                gw: cfg.gateway.clone(),
+                routes: Vec::new(),
+                index: local::LocalIndex::default(),
+                hosts: HashMap::new(),
+                selfsigned: HashMap::new(),
+                temp: HashMap::new(),
+            }),
+            wake: Notify::new(),
+            report: ArcSwap::from_pointee(HashMap::new()),
         });
         let m = Self { inner };
-        m.reconcile(cfg, true).await?;
-        tokio::spawn(worker::run(m.inner.clone(), shutdown));
+        m.reconcile(cfg).await;
+        tokio::spawn(worker::run(m.inner.clone(), shutdown.clone()));
+        tokio::spawn(m.clone().watch_certs_dir(shutdown));
         Ok(m)
     }
 
-    fn record(&self, route: &RouteCfg, msg: &str) {
-        let mut i = Incident::new(trace::trace_hex(trace::nz128()), "acme").with_detail(msg);
-        i.route_id = Some(route.id.to_string());
-        self.inner.recorder.record(i);
+    /// Applies a (new) configuration and reloads the local certificate directory.
+    pub async fn reconcile(&self, cfg: &Config) {
+        let mut st = self.inner.state.lock().await;
+        st.gw = cfg.gateway.clone();
+        st.routes = tls_routes(cfg);
+        st.index = cfg
+            .gateway
+            .certs_dir
+            .as_deref()
+            .map(local::LocalIndex::load)
+            .unwrap_or_default();
+        refresh::refresh(&self.inner, &mut st).await;
+        drop(st);
+        self.inner.wake.notify_one();
     }
 
-    /// Applies a (new) configuration. At startup a bad certificate file is fatal, on reload it is logged.
-    pub async fn reconcile(&self, cfg: &Config, startup: bool) -> Result<(), TlsError> {
-        let inner = &self.inner;
-        let mut active: HashSet<String> = HashSet::new();
-        let mut jobs = Vec::new();
-        for route in cfg.routes.iter().filter(|r| r.tls.is_some()) {
-            active.extend(route.hosts.iter().cloned());
-            match route.tls.as_ref() {
-                Some(TlsCfg::Files { cert, key }) => match read_files(cert, key) {
-                    Ok(k) => route.hosts.iter().for_each(|h| match h.strip_prefix("*.") {
-                        Some(parent) => inner.resolver.set_wildcard(parent, k.clone()),
-                        None => inner.resolver.set(h, k.clone()),
-                    }),
-                    Err(e) if startup => return Err(e),
-                    Err(e) => {
-                        tracing::error!(route = %route.id, error = %e, "cannot reload certificate files, keeping the previous ones");
-                        self.record(route, &e.to_string());
-                    }
-                },
-                Some(TlsCfg::Acme { email }) => {
-                    let mut missing = Vec::new();
-                    for h in &route.hosts {
-                        let loaded = match inner.db.get_cert(h).await? {
-                            Some(r) => pem::certified(&r.cert_pem, &r.key_pem).ok().map(Arc::new),
-                            None => None,
-                        };
-                        match loaded {
-                            Some(k) => inner.resolver.set(h, k),
-                            None if inner.resolver.get(h).is_none() => missing.push(h.clone()),
-                            None => {}
-                        }
-                    }
-                    if !missing.is_empty() {
-                        // One self-signed certificate (SAN = all missing hosts) avoids handshake failures meanwhile.
-                        let k = Arc::new(selfsigned::self_signed(&missing)?);
-                        missing.iter().for_each(|h| inner.resolver.set(h, k.clone()));
-                    }
-                    jobs.push(TlsJob {
-                        route_id: route.id.clone(),
-                        hosts: route.hosts.clone(),
-                        email: email.clone(),
-                    });
-                }
-                None => {}
+    async fn certs_stamp(&self) -> Option<Vec<(String, Option<std::time::SystemTime>, u64)>> {
+        let dir = self.inner.state.lock().await.gw.certs_dir.clone();
+        dir.map(|d| local::dir_stamp(&d))
+    }
+
+    /// Polls `certs-dir` every 2 s: certbot renewals are picked up without a reload.
+    async fn watch_certs_dir(self, shutdown: CancellationToken) {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut last = self.certs_stamp().await;
+        loop {
+            tokio::select! {
+                () = shutdown.cancelled() => return,
+                _ = tick.tick() => {}
+            }
+            let now = self.certs_stamp().await;
+            if now != last {
+                last = now;
+                self.reload_local().await;
             }
         }
-        inner
-            .default_cert
-            .store(cfg.gateway.default_cert.clone().map(Arc::new));
-        if let Some(dc) = &cfg.gateway.default_cert {
-            inner.resolver.set_default(inner.resolver.get(dc));
-        }
-        inner.resolver.remove_not_in(&active);
-        inner.wanted.send_replace(Arc::new(jobs));
-        Ok(())
+    }
+
+    /// Re-reads `certs-dir` only (its content changed on disk).
+    pub async fn reload_local(&self) {
+        let mut st = self.inner.state.lock().await;
+        let Some(dir) = st.gw.certs_dir.clone() else {
+            return;
+        };
+        st.index = local::LocalIndex::load(&dir);
+        refresh::refresh(&self.inner, &mut st).await;
+        drop(st);
+        self.inner.wake.notify_one();
+    }
+
+    /// Certificate source per host, for observability.
+    pub fn report(&self) -> Arc<HashMap<String, HostCert>> {
+        self.inner.report.load_full()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(src: &str) -> Config {
+        crate::config::parse_str(src, &|_| None).unwrap()
+    }
+
+    #[test]
+    fn staging_overrides_global_directory() {
+        const STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
+        let prod = cfg("gateway { default-email \"a@b.c\" }");
+        let custom = cfg("gateway { default-email \"a@b.c\"\n acme-directory \"https://ca.example/dir\" }");
+        assert_eq!(directory_for_route(&prod, true), STAGING);
+        assert_eq!(directory_for_route(&custom, true), STAGING);
+        assert_eq!(directory_for_route(&custom, false), "https://ca.example/dir");
+        assert!(directory_for_route(&prod, false).contains("acme-v02"));
+    }
+
+    #[test]
+    fn routes_carry_their_directory() {
+        let c = cfg(
+            "gateway { default-email \"a@b.c\" }\nroute \"a.com\" { upstream \"10.0.0.1:80\"\n tls { staging } }\nroute \"b.com\" { upstream \"10.0.0.1:80\"\n tls self-signed=#true }\nroute \"c.com\" { upstream \"10.0.0.1:80\"\n tls }",
+        );
+        let r = tls_routes(&c);
+        assert!(r[0].directory.as_deref().is_some_and(|d| d.contains("staging")));
+        assert!(r[1].directory.is_none());
+        assert!(r[2].directory.as_deref().is_some_and(|d| d.contains("acme-v02")));
     }
 }

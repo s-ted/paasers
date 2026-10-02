@@ -261,7 +261,7 @@ SPECS rule respected: during development, never a full `cargo test`; phase P12 r
 | P10 | `plans/10-security-layers.md` | JWT, API key, rate-limit, GeoIP, compression, transform | P5 |
 | P11 | `plans/11-mcp.md` | MCP server + 4 tools | P6, P8 |
 | P12 | `plans/12-testing-release.md` | integration tests, RSS, musl, systemd, README | all |
-| P13 | `plans/13-tls-modes.md` | TLS auto mode (local `certs-dir` > ACME > self-signed), `self-signed` mode, per-route ACME staging, `cert-file`/`key-file` removed (specified, not implemented) | P12 |
+| P13 | `plans/13-tls-modes.md` | TLS auto mode (local `certs-dir` > ACME > self-signed), `self-signed` mode, per-route ACME staging, `cert-file`/`key-file` removed (implemented) | P12 |
 
 Each phase = at least one commit; the binary compiles and `clippy -D warnings` passes **at the end of each phase**.
 

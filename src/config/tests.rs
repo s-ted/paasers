@@ -149,19 +149,126 @@ fn route_simple_children_all_properties() {
     assert!(!r.fallback.show_incident_id);
 }
 
+fn tls_of(src: &str) -> TlsCfg {
+    parse(src).unwrap().routes.remove(0).tls.unwrap()
+}
+
+const GW_EMAIL: &str = "gateway { default-email \"d@x.y\" }\n";
+
 #[test]
-fn tls_modes() {
-    let src = "gateway { default-email \"d@x.y\" }\nroute \"a.com\" { upstream \"10.0.0.1:80\"\n tls }";
-    let r = parse(src).unwrap().routes.remove(0);
+fn tls_auto_defaults() {
+    let src = format!("{GW_EMAIL}{}", route("tls"));
     assert_eq!(
-        r.tls,
-        Some(TlsCfg::Acme {
-            email: "d@x.y".into()
-        })
+        tls_of(&src).mode,
+        TlsMode::Auto {
+            acme: Some(AcmeTarget {
+                email: "d@x.y".into(),
+                staging: false
+            })
+        }
     );
+    assert!(parse(&src).unwrap().routes[0].redirect_https);
+}
+
+#[test]
+fn tls_staging_child() {
+    let src = format!("{GW_EMAIL}{}", route("tls {\n staging\n }"));
+    assert!(matches!(
+        tls_of(&src).mode,
+        TlsMode::Auto {
+            acme: Some(AcmeTarget { staging: true, .. })
+        }
+    ));
+    assert!(err(&format!("{GW_EMAIL}{}", route("tls {\n other\n }"))).contains("unknown node"));
+    assert!(err(&format!("{GW_EMAIL}{}", route("tls {\n staging 1\n }"))).contains("arguments"));
+}
+
+#[test]
+fn tls_self_signed() {
+    let r = parse(&route("tls self-signed=#true")).unwrap().routes.remove(0);
+    assert_eq!(r.tls.unwrap().mode, TlsMode::SelfSigned);
     assert!(r.redirect_https);
-    assert!(err(&route("tls")).contains("email"));
-    assert!(err(&route("tls cert-file=\"/x\"")).contains("together"));
+    let w = "route \"*.a.com\" { upstream \"10.0.0.1:80\"\n tls self-signed=#true }";
+    assert!(parse(w).is_ok());
+    let off = format!("{GW_EMAIL}{}", route("tls self-signed=#false"));
+    assert!(matches!(tls_of(&off).mode, TlsMode::Auto { .. }));
+}
+
+#[test]
+fn self_signed_with_email_rejected() {
+    assert!(err(&route("tls self-signed=#true email=\"a@b.c\"")).contains("self-signed"));
+}
+
+#[test]
+fn self_signed_with_staging_rejected() {
+    assert!(err(&route("tls self-signed=#true {\n staging\n }")).contains("staging"));
+}
+
+#[test]
+fn cert_file_removed_with_hint() {
+    let e = err(&route("tls cert-file=\"/x\" key-file=\"/y\""));
+    assert!(e.contains("certs-dir") && e.contains("removed"), "{e}");
+}
+
+#[test]
+fn no_email_without_local_cert_rejected() {
+    let e = err(&route("tls"));
+    assert!(e.contains("no local certificate") && e.contains("email"), "{e}");
+}
+
+#[test]
+fn wildcard_without_local_cert_rejected() {
+    let s = format!("{GW_EMAIL}route \"*.a.com\" {{ upstream \"10.0.0.1:80\"\n tls }}");
+    let e = err(&s);
+    assert!(e.contains("wildcard"), "{e}");
+}
+
+fn certs_dir(names: &[&str]) -> tempfile::TempDir {
+    let d = tempfile::tempdir().unwrap();
+    let key = rcgen::KeyPair::generate().unwrap();
+    let params =
+        rcgen::CertificateParams::new(names.iter().map(|n| n.to_string()).collect::<Vec<_>>()).unwrap();
+    std::fs::write(
+        d.path().join("fullchain.pem"),
+        params.self_signed(&key).unwrap().pem(),
+    )
+    .unwrap();
+    std::fs::write(d.path().join("privkey.pem"), key.serialize_pem()).unwrap();
+    d
+}
+
+#[test]
+fn local_cert_satisfies_wildcard_and_no_email_warns() {
+    let d = certs_dir(&["*.a.com"]);
+    let s = format!(
+        "gateway {{ certs-dir \"{}\" }}\nroute \"*.a.com\" {{ upstream \"10.0.0.1:80\"\n tls }}",
+        d.path().display()
+    );
+    let cfg = parse(&s).unwrap();
+    assert!(matches!(
+        cfg.routes[0].tls.as_ref().unwrap().mode,
+        TlsMode::Auto { acme: None }
+    ));
+    let w = crate::config::warnings(&cfg);
+    assert!(
+        w.len() == 1 && w[0].contains("no ACME fallback for *.a.com"),
+        "{w:?}"
+    );
+}
+
+#[test]
+fn certs_dir_must_be_directory() {
+    let e = err("gateway { certs-dir \"/definitely/not/here\" }");
+    assert!(e.contains("certs-dir"), "{e}");
+}
+
+#[test]
+fn redirect_https_default_true_for_all_modes() {
+    let a = format!("{GW_EMAIL}{}", route("tls"));
+    assert!(parse(&a).unwrap().routes[0].redirect_https);
+    assert!(parse(&route("tls self-signed=#true")).unwrap().routes[0].redirect_https);
+    let off = format!("{GW_EMAIL}{}", route("tls\n redirect-https #false"));
+    assert!(!parse(&off).unwrap().routes[0].redirect_https);
 }
 
 #[test]
@@ -407,12 +514,6 @@ fn syntax_error_has_position() {
 fn duplicate_host_across_routes() {
     let s = "route \"a.com\" { upstream \"10.0.0.1:80\" }\nroute \"b.com\" \"a.com\" { upstream \"10.0.0.2:80\" }";
     assert!(err(s).contains("a.com"));
-}
-
-#[test]
-fn wildcard_with_acme_rejected() {
-    let s = "route \"*.a.com\" { upstream \"10.0.0.1:80\"\n tls email=\"a@b.c\" }";
-    assert!(err(s).contains("wildcard"));
 }
 
 #[cfg(feature = "passkey")]

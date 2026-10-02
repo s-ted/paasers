@@ -124,7 +124,7 @@ pub async fn run_shared(
             path,
             current.clone(),
             shared.clone(),
-            certs,
+            certs.clone(),
             shutdown.clone(),
         ));
     }
@@ -139,6 +139,7 @@ pub async fn run_shared(
             db: db.clone(),
             started_at: shared.started_at,
             tunnels: shared.tunnels.clone(),
+            certs: certs.clone(),
         });
         let (addr, task) = crate::mcp::serve(m, state, shutdown.clone()).await?;
         mcp_addr = Some(addr);

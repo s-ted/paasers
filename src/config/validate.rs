@@ -1,7 +1,6 @@
 //! Cross-node validation of a parsed configuration.
 use super::error::ConfigError;
 use super::model::*;
-use rustls_pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use std::net::IpAddr;
 use std::path::Path;
 
@@ -29,34 +28,79 @@ fn readable(path: &Path, what: &str) -> Result<(), ConfigError> {
         .or_else(|e| sem(format!("{what} {}: cannot read: {e}", path.display())))
 }
 
-fn check_tls_files(cert: &Path, key: &Path) -> Result<(), ConfigError> {
-    let certs = CertificateDer::pem_file_iter(cert)
-        .and_then(|it| it.collect::<Result<Vec<_>, _>>())
-        .or_else(|e| sem(format!("cert-file {}: {e}", cert.display())))?;
-    if certs.is_empty() {
-        return sem(format!("cert-file {}: no certificate found", cert.display()));
-    }
-    PrivateKeyDer::from_pem_file(key)
-        .map(|_| ())
-        .or_else(|e| sem(format!("key-file {}: {e}", key.display())))
+fn local_index(gw: &GatewayCfg) -> crate::tls::local::LocalIndex {
+    gw.certs_dir
+        .as_deref()
+        .map(crate::tls::local::LocalIndex::load)
+        .unwrap_or_default()
 }
 
-fn check_route(gw: &GatewayCfg, r: &RouteCfg) -> Result<(), ConfigError> {
+fn acme_impossible_reason(gw: &GatewayCfg, r: &RouteCfg) -> &'static str {
+    if r.hosts.iter().any(|h| h.starts_with("*.")) {
+        "wildcard hosts cannot use HTTP-01"
+    } else if gw.default_email.is_none() {
+        "no email, set `tls email=` or gateway `default-email`"
+    } else {
+        "ACME is not available"
+    }
+}
+
+/// Auto mode without ACME needs a local certificate for every host.
+fn check_tls_sources(
+    gw: &GatewayCfg,
+    r: &RouteCfg,
+    idx: &crate::tls::local::LocalIndex,
+) -> Result<(), ConfigError> {
+    if let Some(TlsCfg {
+        mode: TlsMode::Auto { acme: None },
+    }) = &r.tls
+        && let Some(h) = r.hosts.iter().find(|h| idx.best_any(h).is_none())
+    {
+        return sem(format!(
+            "route {}: host {h} has no local certificate and ACME is impossible ({})",
+            r.id,
+            acme_impossible_reason(gw, r)
+        ));
+    }
+    Ok(())
+}
+
+/// Non fatal findings, printed by `paasers check` and logged at startup.
+pub fn warnings(cfg: &Config) -> Vec<String> {
+    let idx = local_index(&cfg.gateway);
+    let mut out = Vec::new();
+    for r in &cfg.routes {
+        if let Some(TlsCfg {
+            mode: TlsMode::Auto { acme: None },
+        }) = &r.tls
+        {
+            for h in r.hosts.iter().filter_map(|h| idx.best_any(h).map(|c| (h, c))) {
+                let when = humantime::format_rfc3339_seconds(
+                    std::time::UNIX_EPOCH
+                        + std::time::Duration::from_secs(h.1.not_after.max(0).unsigned_abs()),
+                );
+                out.push(format!(
+                    "no ACME fallback for {}: renew the local certificate before {when}",
+                    h.0
+                ));
+            }
+        }
+    }
+    out
+}
+
+fn check_route(
+    gw: &GatewayCfg,
+    r: &RouteCfg,
+    idx: &crate::tls::local::LocalIndex,
+) -> Result<(), ConfigError> {
     let id = &r.id;
     if r.tls.is_some() && gw.listen_https.is_none() {
         return sem(format!(
             "route {id}: `tls` requires an HTTPS listener (second `listen` argument)"
         ));
     }
-    match &r.tls {
-        Some(TlsCfg::Acme { .. }) if r.hosts.iter().any(|h| h.starts_with("*.")) => {
-            return sem(format!(
-                "route {id}: wildcard hosts cannot use ACME, provide cert-file/key-file"
-            ));
-        }
-        Some(TlsCfg::Files { cert, key }) => check_tls_files(cert, key)?,
-        _ => {}
-    }
+    check_tls_sources(gw, r, idx)?;
     if r.upstreams.iter().map(|u| u64::from(u.weight)).sum::<u64>() == 0 {
         return sem(format!("route {id}: the sum of upstream weights must be > 0"));
     }
@@ -117,6 +161,12 @@ pub fn validate(cfg: &Config) -> Result<(), ConfigError> {
     if let Some(p) = &gw.acme_ca_root {
         readable(p, "acme-ca-root")?;
     }
+    if let Some(d) = &gw.certs_dir
+        && !d.is_dir()
+    {
+        return sem(format!("certs-dir {}: not a readable directory", d.display()));
+    }
+    let idx = local_index(gw);
     for (i, r) in cfg.routes.iter().enumerate() {
         for h in &r.hosts {
             if let Some(o) = cfg.routes.iter().take(i).find(|o| o.hosts.contains(h)) {
@@ -126,7 +176,7 @@ pub fn validate(cfg: &Config) -> Result<(), ConfigError> {
                 ));
             }
         }
-        check_route(gw, r)?;
+        check_route(gw, r, &idx)?;
     }
     if let Some(dc) = &gw.default_cert
         && !cfg.routes.iter().any(|r| r.tls.is_some() && r.hosts.contains(dc))

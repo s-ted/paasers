@@ -42,7 +42,7 @@ pub async fn reload_once(
     let cfg = Arc::new(cfg);
     let rt = routing::build(&cfg, shared).map_err(|e| e.to_string())?;
     if let Some(c) = certs {
-        c.reconcile(&cfg, false).await.map_err(|e| e.to_string())?;
+        c.reconcile(&cfg).await;
     }
     let routes = cfg.routes.len();
     current.store(Arc::new(rt));

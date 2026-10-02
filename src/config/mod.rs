@@ -8,9 +8,11 @@ mod parse_features;
 pub(crate) mod parse_gate;
 mod parse_jwt;
 mod parse_route;
+mod parse_tls;
 mod parse_transform;
 pub mod units;
 mod validate;
+pub use validate::warnings;
 
 pub use error::ConfigError;
 pub use model::*;

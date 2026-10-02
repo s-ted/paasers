@@ -69,7 +69,7 @@ impl Gw {
         &self,
         Parameters(a): Parameters<RouteStatusArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        let certs = self.state.db.list_certs().await.unwrap_or_default();
+        let certs = self.state.certs.report();
         let rt = self.state.current.load_full();
         let uptime = self.state.started_at.elapsed().map_or(0, |d| d.as_secs());
         let tunnels = self.state.tunnels.load(std::sync::atomic::Ordering::Relaxed);
@@ -117,7 +117,7 @@ impl Gw {
             ));
         };
         let rt = self.state.current.load_full();
-        let certs = self.state.db.list_certs().await.unwrap_or_default();
+        let certs = self.state.certs.report();
         let route = entries
             .first()
             .and_then(|e| e.route_id.as_deref())

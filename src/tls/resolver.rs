@@ -83,10 +83,10 @@ impl ResolvesServerCert for CertResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tls::selfsigned::self_signed;
+    use crate::tls::selfsigned::generate;
 
     fn key(host: &str) -> Arc<CertifiedKey> {
-        Arc::new(self_signed(&[host.to_string()]).unwrap())
+        Arc::new(generate(&[host.to_string()], 1_700_000_000).unwrap().0)
     }
 
     #[test]
