@@ -87,7 +87,7 @@ The first host is the route id. Each host belongs to one route. `*.example.com` 
 | `redirect-https #false` | redirect is on by default for TLS routes |
 | `fallback status=503 show-incident-id=#true title message on` | maintenance page when the backend fails |
 | `cache max-size stale-while-revalidate stale-if-error default-ttl max-object-size` | shared RFC 9111 cache |
-| `compression zstd brotli gzip min-size` | opt in |
+| `compression zstd brotli gzip min-size` / `compression off` | on by default (zstd, brotli, gzip, min-size 1024), `compression off` disables it |
 | `geoip database=.. block-countries=.. allow-countries=.. inject-header` | MaxMind country database |
 | `rate-limit rps=<n> burst=<n> [path="/prefix"]` | per client IP |
 | `gatekeeper { ... }` | see below |

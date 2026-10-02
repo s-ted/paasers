@@ -91,10 +91,11 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
             .single("cache")?
             .map(|c| feat::parse_cache(&c))
             .transpose()?,
-        compression: scope
-            .single("compression")?
-            .map(|c| feat::parse_compression(&c))
-            .transpose()?,
+        // Enabled by default (zstd, brotli, gzip); `compression off` disables it.
+        compression: match scope.single("compression")? {
+            Some(c) => feat::parse_compression(&c)?,
+            None => Some(CompressionCfg::default()),
+        },
         geoip: scope
             .single("geoip")?
             .map(|c| feat::parse_geoip(&c))

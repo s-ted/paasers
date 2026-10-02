@@ -126,7 +126,7 @@ fn route_defaults() {
     assert_eq!(r.health, HealthCfg::default());
     assert_eq!(r.request_timeout, Duration::from_secs(60));
     assert_eq!(r.fallback, FallbackCfg::default());
-    assert!(r.cache.is_none() && r.compression.is_none() && r.gatekeeper.is_none());
+    assert!(r.cache.is_none() && r.compression == Some(CompressionCfg::default()) && r.gatekeeper.is_none());
 }
 
 #[test]
@@ -482,6 +482,13 @@ fn jwt_secret_env_missing() {
 fn geoip_block_and_allow() {
     let g = format!("geoip database=\"{GEO}\" block-countries=\"CN\" allow-countries=\"FR\"");
     assert!(err(&route(&g)).contains("mutually exclusive"));
+}
+
+#[test]
+fn compression_off() {
+    let r = parse(&route("compression off")).unwrap().routes.remove(0);
+    assert!(r.compression.is_none());
+    assert!(err(&route("compression on")).contains("only the argument"));
 }
 
 #[test]

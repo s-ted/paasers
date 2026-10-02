@@ -173,6 +173,17 @@ pub struct CompressionCfg {
     pub min_size: u64,
 }
 
+impl Default for CompressionCfg {
+    fn default() -> Self {
+        Self {
+            zstd: true,
+            brotli: true,
+            gzip: true,
+            min_size: 1024,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeoIpCfg {
     pub database: PathBuf,

@@ -31,8 +31,16 @@ pub fn parse_cache(n: &NodeCtx<'_>) -> Result<CacheCfg, ConfigError> {
     })
 }
 
-pub fn parse_compression(n: &NodeCtx<'_>) -> Result<CompressionCfg, ConfigError> {
-    n.check_args(0, 0)?;
+/// `compression off` disables it (None). Otherwise Some(cfg) with defaults for absent props.
+pub fn parse_compression(n: &NodeCtx<'_>) -> Result<Option<CompressionCfg>, ConfigError> {
+    n.check_args(0, 1)?;
+    if n.args().next().is_some() {
+        if n.arg_str(0)? != "off" {
+            return Err(n.err("compression accepts only the argument `off`"));
+        }
+        n.check_props(&[])?;
+        return Ok(None);
+    }
     n.check_props(&["zstd", "brotli", "gzip", "min-size"])?;
     let min_size = n.prop_size("min-size")?.unwrap_or(1024);
     if min_size > 16 * 1024 * 1024 {
@@ -47,7 +55,7 @@ pub fn parse_compression(n: &NodeCtx<'_>) -> Result<CompressionCfg, ConfigError>
     if !(c.zstd || c.brotli || c.gzip) {
         return Err(n.err("compression with no algorithm enabled"));
     }
-    Ok(c)
+    Ok(Some(c))
 }
 
 pub fn parse_geoip(n: &NodeCtx<'_>) -> Result<GeoIpCfg, ConfigError> {
