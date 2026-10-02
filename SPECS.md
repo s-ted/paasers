@@ -5,7 +5,7 @@
 * **Philosophie :** 
   * **KISS / YAGNI :** Pas de Kubernetes, pas de dépendance externe lourde (zéro Redis, zéro etcd, zéro base de données externe). Tout tient dans un binaire statique unique.
   * **Convention over Configuration :** Configuration déclarative textuelle simple (KDL).
-  * **Empreinte minimale :** Consommation cible **< 20 Mo de RAM**, zéro pause de Garbage Collection (pile Rust pure).
+  * **Empreinte minimale :** Consommation cible **< 32 Mo de RAM**, zéro pause de Garbage Collection (pile Rust pure).
 
 ---
 
@@ -23,7 +23,9 @@
 ## 3. Architecture Fonctionnelle & Modules Core
 
 ### A. Core Proxy & Contrôle d'accès (Data Plane)
-1. **Terminaison TLS & ACME :** Renouvellement automatique des certificats par domaine via `instant-acme`, persistés dans SQLite (`certs.db`). Pas de fichier `acme.json` monolithique.
+1. **Terminaison TLS & ACME :** Renouvellement automatique des certificats par domaine via `instant-acme`, persistés dans SQLite (`certs.db`). Pas de fichier `acme.json` monolithique. Le TLS est optionnel par route (sans nœud `tls`, la route est servie en HTTP uniquement) et fonctionne selon deux modes, décrits en section 4.1 :
+   * **auto** (`tls`) : certificat local valide du répertoire `certs-dir`, sinon certificat Let's Encrypt, sinon certificat auto-signé temporaire, de façon transparente et par hôte ;
+   * **auto-signé** (`tls self-signed=#true`) : certificat généré en mémoire, éphémère.
 2. **Routage par IP Privée (Upstream Pool) :** Routage Host-based vers des IPs privées (`10.0.x.y:port`).
 3. **Active Health-Checking :** Tâche de fond `tokio` par upstream effectuant des ponds continus. Si un backend est injoignable, retrait instantané de la table de routage en mémoire.
 4. **Page de Fallback Inline (Maintenance) :** En cas de 502/503 ou de timeout réseau, service immédiat d'une page HTML/JSON de secours embarquée en mémoire avec affichage d'un **Incident ID** (qui est le `trace_id` W3C).
@@ -102,6 +104,31 @@ route "dev.client.com" {
     }
 }
 ```
+
+### 4.1 Modes TLS
+
+```kdl
+gateway {
+    certs-dir "/etc/paasers/certs"            // optionnel : répertoire de certificats locaux
+    acme-directory "production"               // défaut global (production | staging | URL https)
+}
+
+route "client.com" "www.client.com" { tls }                       // auto : local si présent, sinon Let's Encrypt
+route "dev.client.com" { tls { staging } }                        // auto, Let's Encrypt staging pour cette route
+route "*.preview.client.com" { tls }                              // wildcard : exige un certificat local
+route "intranet.lan" { tls self-signed=#true }                    // auto-signé en mémoire
+route "plain.client.com" { }                                      // HTTP uniquement
+```
+
+* **Mode auto, ordre de choix par hôte :** (1) certificat local valide, (2) certificat ACME valide, (3) certificat local expiré en dernier recours, avec incident, (4) certificat auto-signé temporaire. Ce choix est réévalué au démarrage, au rechargement, à chaque changement du répertoire et à chaque expiration.
+* **`certs-dir` :** tout le répertoire est analysé, sans contrainte de nom de fichier. Les clés et les certificats sont appariés par clé publique et associés aux hôtes par leurs SAN. À validité égale, celui qui expire le plus tard l'emporte. Les renouvellements externes (certbot, etc.) sont pris en compte sans redémarrage.
+* **Continuité de service :** l'émission ACME démarre 30 jours avant l'expiration du certificat local (ou immédiatement s'il n'y en a pas), pendant que le certificat local continue d'être servi.
+* **`staging` :** nœud enfant optionnel de `tls`, il impose Let's Encrypt staging pour la route et prime sur `acme-directory`.
+* **Mode auto-signé :** incompatible avec `email` et `staging`. Les wildcards sont acceptés. Le certificat n'est jamais stocké ni remplacé par ACME, et change à chaque redémarrage.
+* **Contraintes :** ACME (HTTP-01) est impossible pour un wildcard ou sans email (`email=` ou `default-email`). Un hôte sans certificat local ni ACME possible est une erreur de configuration. Un hôte avec certificat local mais sans ACME possible produit un avertissement (pas de repli).
+* **`redirect-https` :** vaut `#true` par défaut pour tous les modes TLS.
+* **Observabilité :** chaque changement de source de certificat est journalisé et enregistré comme incident `tls_fallback`. Le MCP expose la source de chaque hôte (`local`, `acme`, `local-expired`, `self-signed`).
+* `cert-file` et `key-file` n'existent pas : un répertoire de certificats les remplace.
 
 ---
 
