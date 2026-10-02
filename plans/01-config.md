@@ -183,7 +183,7 @@ Defaults: all `#true`, `min-size` 1024 (`u64`, bounds 0..=16 MiB; integer = byte
 | `session-duration "<dur>"` | `Duration` 1m..=90d | `14d` |
 | `rate-limit attempts=<u32> window="<dur>"` | anti brute-force | `5`, `15m` |
 | `passkey <bool>` | enables WebAuthn | `#false`; `#true` without cargo feature `passkey` ⇒ error |
-| `cookie-name "<name>"` | `[A-Za-z0-9_-]+` | `__Host-gate` if route `tls`, otherwise `gate` |
+| `cookie-name "<name>"` | `[A-Za-z0-9_-]+` | `__Host-gate` if route `tls`, otherwise `__gate` (`__Host-` needs `Secure`, so it cannot be used over plain HTTP) |
 Exactly one of `psk`/`psk-env` ⇒ otherwise error.
 
 ### 3.15 `jwt-validation { ... }`

@@ -68,7 +68,7 @@ pub fn verify(key: &[u8; 32], route: &str, fp: &str, cookie: &str, now: i64) -> 
 }
 ```
 Verified note: without the `danger-allow-state-serialisation` feature, `PasskeyRegistration`/`PasskeyAuthentication` are **not** `Serialize` (compilation error observed) but are `Send + Sync + 'static`: hence the in-memory storage (§2). `Passkey` is `Serialize + Deserialize`; `CreationChallengeResponse` serializes with the `publicKey` key (tested).
-`Set-Cookie` attributes: `{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={secs}` + `; Secure` if the route has `tls`. Default name `__Host-gate` (tls, requires Secure+Path=/ without Domain) otherwise `gate`. Logout: same name, empty value, `Max-Age=0`.
+`Set-Cookie` attributes: `{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={secs}` + `; Secure` if the route has `tls`. Default name `__Host-gate` (tls, requires Secure+Path=/ without Domain) otherwise `__gate`. Logout: same name, empty value, `Max-Age=0`.
 Reading: iterate over **all** `Cookie` values, split `;`, trim, `name=value`; take the first value with the right name.
 
 ## 4. PSK (`psk.rs`)

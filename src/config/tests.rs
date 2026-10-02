@@ -336,7 +336,7 @@ fn gatekeeper_defaults_and_all() {
         .gatekeeper
         .unwrap();
     assert_eq!(g.title, "Protected access");
-    assert_eq!(g.cookie_name, "gate");
+    assert_eq!(g.cookie_name, "__gate");
     assert_eq!((g.attempts, g.window), (5, Duration::from_secs(900)));
     assert!(g.totp_secret.is_none() && !g.passkey);
     let src = format!(

@@ -120,7 +120,7 @@ pub fn parse_gatekeeper(n: &NodeCtx<'_>, tls: bool, env: Env<'_>) -> Result<Gate
             }
             v.to_string()
         }
-        None => (if tls { "__Host-gate" } else { "gate" }).to_string(),
+        None => (if tls { "__Host-gate" } else { "__gate" }).to_string(),
     };
     Ok(GatekeeperCfg {
         title: s
