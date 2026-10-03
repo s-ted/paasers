@@ -79,10 +79,21 @@ jobs:
           subject-path: |
             dist/paasers-*.tar.gz
             dist/paasers-*.zip
-      - name: Publish the GitHub release
+      # Two steps for immutable releases: assets can only be attached while the release is a draft,
+      # publishing then locks both the assets and the tag.
+      - name: Create a draft release with every asset
         run: |
           pre=(); [[ "$GITHUB_REF_NAME" == *-* ]] && pre=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME" "${pre[@]}"
+          gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME" "${pre[@]}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+      - name: Check the draft, then publish
+        run: |
+          expected=$(find dist -maxdepth 1 -type f | wc -l)
+          attached=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length')
+          [[ "$attached" == "$expected" ]] || { echo "::error::$attached assets attached, $expected expected"; exit 1; }
+          gh release edit "$GITHUB_REF_NAME" --draft=false
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
