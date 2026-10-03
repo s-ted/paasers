@@ -11,5 +11,6 @@ pub mod prelude;
 pub mod proxy;
 pub mod routing;
 pub mod server;
+pub mod staticfiles;
 pub mod storage;
 pub mod tls;

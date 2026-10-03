@@ -101,7 +101,15 @@ fn check_route(
         ));
     }
     check_tls_sources(gw, r, idx)?;
-    if r.upstreams.iter().map(|u| u64::from(u.weight)).sum::<u64>() == 0 {
+    if let Some(s) = &r.static_files
+        && !s.root.is_dir()
+    {
+        return sem(format!(
+            "route {id}: static {}: not a directory",
+            s.root.display()
+        ));
+    }
+    if r.static_files.is_none() && r.upstreams.iter().map(|u| u64::from(u.weight)).sum::<u64>() == 0 {
         return sem(format!("route {id}: the sum of upstream weights must be > 0"));
     }
     for (i, u) in r.upstreams.iter().enumerate() {

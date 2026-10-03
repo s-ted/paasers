@@ -563,3 +563,147 @@ fn health_timeout_must_be_below_interval() {
 fn limits_bounds() {
     assert!(err("gateway { limits max-headers-size=\"1KiB\" }").contains("max-headers-size"));
 }
+
+fn static_route(body: &str) -> String {
+    format!("route \"s.com\" {{\n {body}\n}}")
+}
+
+fn tmp_dir() -> tempfile::TempDir {
+    tempfile::tempdir().unwrap()
+}
+
+#[test]
+fn static_defaults() {
+    let d = tmp_dir();
+    let p = d.path().display();
+    let r = parse(&static_route(&format!("static \"{p}\"")))
+        .unwrap()
+        .routes
+        .remove(0);
+    let s = r.static_files.unwrap();
+    assert_eq!(s.root, d.path());
+    assert_eq!(s.index, "index.html");
+    assert!(s.listing && !s.spa && !s.hidden && !s.follow_symlinks);
+    assert_eq!(s.cache_control, None);
+    assert!(r.upstreams.is_empty());
+}
+
+#[test]
+fn static_all_properties() {
+    let d = tmp_dir();
+    let p = d.path().display();
+    let r = parse(&static_route(&format!(
+        "static \"{p}\" index=\"home.htm\" listing=#false spa=#true hidden=#true follow-symlinks=#true cache-control=\"max-age=60\""
+    )))
+    .unwrap()
+    .routes
+    .remove(0);
+    let s = r.static_files.unwrap();
+    assert_eq!(s.index, "home.htm");
+    assert!(!s.listing && s.spa && s.hidden && s.follow_symlinks);
+    assert_eq!(s.cache_control.as_deref(), Some("max-age=60"));
+    let r = parse(&static_route(&format!("static \"{p}\" index=\"\"")))
+        .unwrap()
+        .routes
+        .remove(0);
+    assert_eq!(r.static_files.unwrap().index, "");
+}
+
+#[test]
+fn static_and_upstream_are_exclusive() {
+    let d = tmp_dir();
+    let e = err(&static_route(&format!(
+        "static \"{}\"\n upstream \"10.0.0.1:80\"",
+        d.path().display()
+    )));
+    assert!(e.contains("mutually exclusive"), "{e}");
+}
+
+#[test]
+fn static_rejects_proxy_only_nodes() {
+    let d = tmp_dir();
+    for node in [
+        "health-check path=\"/\"",
+        "timeouts request=\"5s\"",
+        "cache max-size=\"1MB\"",
+        "fallback status=503",
+    ] {
+        let e = err(&static_route(&format!(
+            "static \"{}\"\n {node}",
+            d.path().display()
+        )));
+        assert!(e.contains("does not apply to a static route"), "{node}: {e}");
+    }
+}
+
+#[test]
+fn static_keeps_other_layers() {
+    let d = tmp_dir();
+    let r = parse(&static_route(&format!(
+        "static \"{}\"\n rate-limit rps=5 burst=5\n compression off",
+        d.path().display()
+    )))
+    .unwrap()
+    .routes
+    .remove(0);
+    assert_eq!(r.rate_limits.len(), 1);
+    assert!(r.compression.is_none());
+}
+
+#[test]
+fn route_needs_a_backend() {
+    let e = err(&static_route(""));
+    assert!(e.contains("at least one upstream or a static directory"), "{e}");
+}
+
+#[test]
+fn static_directory_must_exist_and_be_a_directory() {
+    let d = tmp_dir();
+    let missing = d.path().join("nope");
+    let e = err(&static_route(&format!("static \"{}\"", missing.display())));
+    assert!(e.contains("not a directory"), "{e}");
+    let file = d.path().join("f.txt");
+    std::fs::write(&file, "x").unwrap();
+    let e = err(&static_route(&format!("static \"{}\"", file.display())));
+    assert!(e.contains("not a directory"), "{e}");
+}
+
+#[test]
+fn static_index_must_be_a_plain_file_name() {
+    let d = tmp_dir();
+    for bad in ["a/b.html", "..", "../x"] {
+        let e = err(&static_route(&format!(
+            "static \"{}\" index=\"{bad}\"",
+            d.path().display()
+        )));
+        assert!(e.contains("index"), "{bad}: {e}");
+    }
+}
+
+#[test]
+fn static_argument_and_duplicates() {
+    let d = tmp_dir();
+    let p = d.path().display();
+    assert!(err(&static_route("static")).contains("argument"));
+    assert!(err(&static_route(&format!("static \"{p}\" bogus=1"))).contains("unknown property"));
+    let e = err(&static_route(&format!("static \"{p}\"\n static \"{p}\"")));
+    assert!(e.contains("duplicate node"), "{e}");
+}
+
+#[test]
+fn static_example_parses() {
+    let d = tmp_dir();
+    let mut src =
+        std::fs::read_to_string(format!("{}/examples/static.kdl", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    for dir in ["/srv/site", "/srv/app/dist", "/srv/downloads"] {
+        let real = d.path().join(dir.trim_start_matches('/'));
+        std::fs::create_dir_all(&real).unwrap();
+        src = src.replace(&format!("\"{dir}\""), &format!("\"{}\"", real.display()));
+    }
+    let c = parse(&src).unwrap();
+    assert_eq!(c.routes.len(), 4);
+    assert!(c.routes[0].static_files.as_ref().is_some_and(|s| !s.listing));
+    assert!(c.routes[1].static_files.as_ref().is_some_and(|s| s.spa));
+    assert!(c.routes[2].static_files.is_some() && c.routes[2].gatekeeper.is_some());
+    assert!(c.routes[3].static_files.is_none() && !c.routes[3].upstreams.is_empty());
+}

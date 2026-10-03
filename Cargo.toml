@@ -23,7 +23,8 @@ http-body = "1"
 http-body-util = "0.1.5"
 bytes = "1.12"
 tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.7.1", default-features = false, features = ["compression-gzip", "compression-br", "compression-zstd"] }
+tower-http = { version = "0.7.1", default-features = false, features = ["compression-gzip", "compression-br", "compression-zstd", "fs"] }
+percent-encoding = "2.3"
 async-compression = { version = "0.4.49", features = ["tokio", "gzip", "zstd", "brotli"] }
 tokio-util = { version = "0.7.19", features = ["io", "rt"] }
 futures-util = "0.3.34"
