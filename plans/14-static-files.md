@@ -39,7 +39,7 @@ Rules (config errors):
 * `static` needs exactly one string argument. The directory must exist and be a directory at load (`route X: static <dir>: not a directory`).
 * A route with `static` and `upstream` ⇒ `route X: static and upstream are mutually exclusive`.
 * A route with `static` and any of `health-check`, `timeouts`, `cache`, `fallback` ⇒ `route X: <node> does not apply to a static route`.
-* A route with neither ⇒ `route needs at least one upstream or a static directory` (replaces the old message, which tests only match on `upstream`).
+* A route with neither serves the **current directory** (`StaticCfg::default()`, root `.`), see §7. The proxy-only nodes are rejected on it as well.
 * `index` containing `/` or `..` ⇒ error. Duplicate `static` ⇒ `duplicate node`.
 * The directory is canonicalized at **runtime build** (symlinked roots are fine).
 
@@ -91,7 +91,7 @@ Dependencies: `tower-http` feature `fs` (pulls `mime_guess`, `http-range-header`
 ## 5. Tests (written before the implementation)
 
 Config (`src/config/tests.rs`): defaults, all properties, static + upstream rejected, static + each forbidden node
-rejected, route without backend rejected, missing directory rejected, file instead of directory rejected, bad `index`,
+rejected, route without backend serves the current directory, missing directory rejected, file instead of directory rejected, bad `index`,
 duplicate `static`.
 
 Path unit tests (`staticfiles/path.rs`): `..`, `%2e%2e`, `%2f` handling, double slash, NUL, backslash, dotfile segments,
@@ -121,3 +121,13 @@ Integration (`tests/static_files.rs`, real gateway, temp directory):
 | X2 | Listing leaks file names by default (S4 decision). | Documented prominently, `listing=#false` and dotfiles hidden by default. |
 | X3 | Large directories exhaust memory. | 10 000 entry cap, entries stream from `read_dir`, only the kept entries are held. |
 | X4 | Time-of-check/time-of-use between the walk and the open. | Accepted for a read-only server whose root is operator-controlled. Documented. |
+
+## 7. Default configuration: serve the current directory
+
+| # | Decision |
+|---|---|
+| D1 | A route with neither `upstream` nor `static` gets `StaticCfg::default()` (root `.`, listing on). |
+| D2 | A configuration with **no route at all** gets an implicit catch-all route (id `(default)`, no hosts, no TLS) answering every host. It is held by `HostTable` as a fallback, used only when the table has no route. |
+| D3 | `paasers run` / `check` without `-c`: a missing `/etc/paasers/gateway.kdl` means an empty configuration. An explicit `-c` that is missing stays an error. |
+| D4 | The relative root `.` is canonicalized when the route is built, so it is the working directory of the process at start (and at each reload). |
+| D5 | Compatibility: a configuration that listed no route used to answer 404 everywhere. It now serves the working directory, which is the requested behavior. `tests/reload.rs` was adapted accordingly. |

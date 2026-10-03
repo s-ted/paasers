@@ -54,6 +54,46 @@ pub fn active_upstreams(cfg: &Config) -> HashSet<SocketAddr> {
         .collect()
 }
 
+/// Implicit route used when the configuration defines none: serves the current directory on any host.
+fn default_route(cfg: &Arc<Config>, shared: &Shared) -> Result<Arc<RouteRuntime>, BuildError> {
+    let route = RouteCfg {
+        id: Arc::from("(default)"),
+        hosts: Vec::new(),
+        tls: None,
+        redirect_https: false,
+        upstreams: Vec::new(),
+        static_files: Some(crate::config::StaticCfg::default()),
+        health: crate::config::HealthCfg::default(),
+        request_timeout: std::time::Duration::from_secs(60),
+        cache: None,
+        compression: Some(crate::config::CompressionCfg::default()),
+        geoip: None,
+        rate_limits: Vec::new(),
+        gatekeeper: None,
+        jwt: None,
+        api_keys: None,
+        transform: None,
+        fallback: crate::config::FallbackCfg::default(),
+    };
+    let balancer = Arc::new(Balancer::new(&[], &shared.health));
+    let service = stack::build_stack(
+        &route,
+        balancer.clone(),
+        shared,
+        Arc::new(cfg.gateway.trusted_proxies.clone()),
+        cfg.gateway.listen_https.map(|a| a.port()),
+    )?;
+    Ok(Arc::new(RouteRuntime {
+        id: route.id.clone(),
+        hosts: Vec::new(),
+        cfg: Arc::new(route),
+        service,
+        balancer,
+        cache: None,
+        redirect_https: false,
+    }))
+}
+
 pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> {
     let trusted = Arc::new(cfg.gateway.trusted_proxies.clone());
     let mut probed: HashSet<SocketAddr> = HashSet::new();
@@ -95,7 +135,11 @@ pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> 
         .caches
         .retain(&cfg.routes.iter().map(|r| r.id.clone()).collect());
     Ok(Runtime {
-        table: HostTable::new(routes)?,
+        table: if routes.is_empty() {
+            HostTable::catch_all(default_route(cfg, shared)?)
+        } else {
+            HostTable::new(routes)?
+        },
         trusted_proxies: cfg.gateway.trusted_proxies.clone(),
         https_port: cfg.gateway.listen_https.map(|a| a.port()),
         limits: cfg.gateway.limits.clone(),

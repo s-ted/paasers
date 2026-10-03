@@ -113,6 +113,21 @@ pub struct StaticCfg {
     pub cache_control: Option<String>,
 }
 
+impl Default for StaticCfg {
+    /// Serves the current working directory (resolved when the routes are built).
+    fn default() -> Self {
+        Self {
+            root: PathBuf::from("."),
+            index: "index.html".into(),
+            listing: true,
+            spa: false,
+            hidden: false,
+            follow_symlinks: false,
+            cache_control: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpstreamCfg {
     pub addr: SocketAddr,

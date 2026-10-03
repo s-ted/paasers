@@ -50,19 +50,21 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
         .iter()
         .map(parse_upstream)
         .collect::<Result<_, _>>()?;
-    let static_files = scope.single("static")?.map(|s| parse_static(&s)).transpose()?;
-    if static_files.is_some() {
-        if !upstreams.is_empty() {
-            return Err(n.err("static and upstream are mutually exclusive"));
-        }
-        if let Some(bad) = ["health-check", "timeouts", "cache", "fallback"]
+    let explicit = scope.single("static")?.map(|s| parse_static(&s)).transpose()?;
+    if explicit.is_some() && !upstreams.is_empty() {
+        return Err(n.err("static and upstream are mutually exclusive"));
+    }
+    // No upstream and no `static`: the route serves the current directory.
+    let static_files = match explicit {
+        None if upstreams.is_empty() => Some(StaticCfg::default()),
+        other => other,
+    };
+    if static_files.is_some()
+        && let Some((name, bad)) = ["health-check", "timeouts", "cache", "fallback"]
             .into_iter()
             .find_map(|name| scope.single(name).ok().flatten().map(|b| (name, b)))
-        {
-            return Err(bad.1.err(format!("`{}` does not apply to a static route", bad.0)));
-        }
-    } else if upstreams.is_empty() {
-        return Err(n.err("route needs at least one upstream or a static directory"));
+    {
+        return Err(bad.err(format!("`{name}` does not apply to a static route")));
     }
     let tls = scope
         .single("tls")?

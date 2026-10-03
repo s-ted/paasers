@@ -651,12 +651,6 @@ fn static_keeps_other_layers() {
 }
 
 #[test]
-fn route_needs_a_backend() {
-    let e = err(&static_route(""));
-    assert!(e.contains("at least one upstream or a static directory"), "{e}");
-}
-
-#[test]
 fn static_directory_must_exist_and_be_a_directory() {
     let d = tmp_dir();
     let missing = d.path().join("nope");
@@ -701,9 +695,24 @@ fn static_example_parses() {
         src = src.replace(&format!("\"{dir}\""), &format!("\"{}\"", real.display()));
     }
     let c = parse(&src).unwrap();
-    assert_eq!(c.routes.len(), 4);
+    assert_eq!(c.routes.len(), 5);
+    assert_eq!(c.routes[4].static_files, Some(StaticCfg::default()));
     assert!(c.routes[0].static_files.as_ref().is_some_and(|s| !s.listing));
     assert!(c.routes[1].static_files.as_ref().is_some_and(|s| s.spa));
     assert!(c.routes[2].static_files.is_some() && c.routes[2].gatekeeper.is_some());
     assert!(c.routes[3].static_files.is_none() && !c.routes[3].upstreams.is_empty());
+}
+
+#[test]
+fn route_without_backend_serves_current_directory() {
+    let r = parse(&static_route("")).unwrap().routes.remove(0);
+    assert_eq!(r.static_files, Some(StaticCfg::default()));
+    assert_eq!(r.static_files.unwrap().root, std::path::Path::new("."));
+    assert!(r.upstreams.is_empty());
+}
+
+#[test]
+fn implicit_static_route_rejects_proxy_only_nodes() {
+    let e = err(&static_route("cache max-size=\"1MB\""));
+    assert!(e.contains("does not apply to a static route"), "{e}");
 }

@@ -2,6 +2,16 @@
 
 A route can serve a directory instead of proxying to an upstream, in the spirit of miniserve. No scripting, no FastCGI, no upload. The static service replaces the reverse proxy at the bottom of the route stack, so every other feature still applies: GeoIP, rate limit, gatekeeper, API keys, JWT, transform and compression.
 
+## Default configuration: serve the current directory
+
+If there is nothing to proxy to, paasers serves the **current working directory**:
+
+* No configuration at all (`paasers run` without `-c` when `/etc/paasers/gateway.kdl` does not exist, or a file without any `route`): an implicit route answers **every host** with the current directory. No TLS, plain HTTP on `:80` unless a `gateway { listen }` block says otherwise. The other `gateway` defaults apply too, notably the database in `/var/lib/gateway`: as a normal user, set `listen` and `storage-path` (see the README).
+* A `route` with neither `upstream` nor `static`: it serves the current directory for its hosts, with all `static` defaults below.
+* Once at least one route is configured, the implicit route disappears and unknown hosts answer 404.
+
+The directory is the working directory of the process (for a systemd unit, set `WorkingDirectory=`). Keep the SQLite file (`storage-path`) outside of it: it is served like any other file otherwise.
+
 ## Defaults
 
 ```kdl
@@ -85,6 +95,6 @@ route "assets.example.com" {
 
 ## Rules
 
-* `static` and `upstream` are mutually exclusive, a route needs one of them.
+* `static` and `upstream` are mutually exclusive. A route with neither serves the current directory.
 * `health-check`, `timeouts`, `cache` and `fallback` do not apply to a static route and are rejected.
 * `static` takes exactly one argument and cannot be repeated.

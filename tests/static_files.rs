@@ -360,3 +360,57 @@ async fn coexists_with_proxy_routes() {
     assert!(r.starts_with("HTTP/1.1 200"), "{r}");
     g.stop().await;
 }
+
+#[tokio::test]
+async fn route_without_backend_serves_current_directory() {
+    // The test process runs in the package root: Cargo.toml is served, .git is hidden.
+    let g = spawn_gateway("gateway {\n listen \"127.0.0.1:0\"\n}\nroute \"d.test\" {}\n").await;
+    let raw = raw_bytes(
+        g.http_addr(),
+        b"GET /Cargo.toml HTTP/1.1\r\nHost: d.test\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let (h, b) = split_response(&raw);
+    assert_eq!(status(&h), 200, "{h}");
+    assert!(String::from_utf8_lossy(&b).contains("[package]"));
+    g.stop().await;
+}
+
+#[tokio::test]
+async fn empty_configuration_serves_current_directory_on_any_host() {
+    let g = spawn_gateway("gateway {\n listen \"127.0.0.1:0\"\n}\n").await;
+    for host in ["anything.test", "127.0.0.1"] {
+        let raw = raw_bytes(
+            g.http_addr(),
+            format!("GET /Cargo.toml HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes(),
+        )
+        .await;
+        let (h, b) = split_response(&raw);
+        assert_eq!(status(&h), 200, "{host}: {h}");
+        assert!(String::from_utf8_lossy(&b).contains("[package]"));
+    }
+    let raw = raw_bytes(
+        g.http_addr(),
+        b"GET /.git/config HTTP/1.1\r\nHost: x.test\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert_eq!(status(&split_response(&raw).0), 404);
+    g.stop().await;
+}
+
+#[tokio::test]
+async fn configured_routes_disable_the_implicit_default() {
+    let s = site();
+    let g = spawn_gateway(&kdl(&s, "", "")).await;
+    let raw = raw_bytes(
+        g.http_addr(),
+        b"GET /Cargo.toml HTTP/1.1\r\nHost: other.test\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert_eq!(
+        status(&split_response(&raw).0),
+        404,
+        "unknown hosts must not fall back"
+    );
+    g.stop().await;
+}

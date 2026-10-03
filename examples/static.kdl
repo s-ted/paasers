@@ -31,3 +31,8 @@ route "api.example.com" {
     tls email="ops@example.com"
     upstream "10.0.1.10:8080"
 }
+
+// A route with neither `upstream` nor `static` serves the current working directory.
+route "here.example.com" {
+    tls email="ops@example.com"
+}
