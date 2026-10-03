@@ -9,6 +9,7 @@ use std::time::Duration;
 
 const ROUTE_NODES: &[&str] = &[
     "upstream",
+    "static",
     "health-check",
     "timeouts",
     "tls",
@@ -49,8 +50,19 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
         .iter()
         .map(parse_upstream)
         .collect::<Result<_, _>>()?;
-    if upstreams.is_empty() {
-        return Err(n.err("route needs at least one upstream"));
+    let static_files = scope.single("static")?.map(|s| parse_static(&s)).transpose()?;
+    if static_files.is_some() {
+        if !upstreams.is_empty() {
+            return Err(n.err("static and upstream are mutually exclusive"));
+        }
+        if let Some(bad) = ["health-check", "timeouts", "cache", "fallback"]
+            .into_iter()
+            .find_map(|name| scope.single(name).ok().flatten().map(|b| (name, b)))
+        {
+            return Err(bad.1.err(format!("`{}` does not apply to a static route", bad.0)));
+        }
+    } else if upstreams.is_empty() {
+        return Err(n.err("route needs at least one upstream or a static directory"));
     }
     let tls = scope
         .single("tls")?
@@ -81,6 +93,7 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
         hosts,
         redirect_https,
         upstreams,
+        static_files,
         health: scope
             .single("health-check")?
             .map(|h| parse_health(&h))
@@ -127,6 +140,32 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
             .transpose()?
             .unwrap_or_default(),
         tls,
+    })
+}
+
+fn parse_static(n: &NodeCtx<'_>) -> Result<StaticCfg, ConfigError> {
+    n.check_args(1, 1)?;
+    n.check_props(&[
+        "index",
+        "listing",
+        "spa",
+        "hidden",
+        "follow-symlinks",
+        "cache-control",
+    ])?;
+    n.scope().check_only(&[])?;
+    let index = n.prop_str("index")?.unwrap_or("index.html");
+    if index.contains('/') || index.contains('\\') || index.contains("..") {
+        return Err(n.err("static index must be a plain file name"));
+    }
+    Ok(StaticCfg {
+        root: n.arg_str(0)?.into(),
+        index: index.to_string(),
+        listing: n.prop_bool("listing")?.unwrap_or(true),
+        spa: n.prop_bool("spa")?.unwrap_or(false),
+        hidden: n.prop_bool("hidden")?.unwrap_or(false),
+        follow_symlinks: n.prop_bool("follow-symlinks")?.unwrap_or(false),
+        cache_control: n.prop_str("cache-control")?.map(str::to_string),
     })
 }
 

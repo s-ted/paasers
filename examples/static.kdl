@@ -1,0 +1,33 @@
+// Static file routes (see docs/features/static.md). Each `static` directory must exist.
+gateway {
+    listen ":80" ":443"
+    storage-path "/var/lib/gateway/certs.db"
+}
+
+// Public site: directory listing is on by default, disabled here.
+route "www.example.com" {
+    tls email="ops@example.com"
+    static "/srv/site" listing=#false cache-control="public, max-age=3600"
+}
+
+// Single page application: unknown paths serve index.html.
+route "app.example.com" {
+    tls email="ops@example.com"
+    static "/srv/app/dist" spa=#true
+}
+
+// Browsable download area behind a shared password, with a rate limit.
+route "dl.example.com" {
+    tls email="ops@example.com"
+    static "/srv/downloads"
+    gatekeeper {
+        psk "$argon2id$v=19$m=19456,t=2,p=1$ftC9LdPXCcZ6MiQpvWUwXA$haZvTFqngv2fUrBLJTBmAw2Ltxdy9HonzbKTkg4bXhI"
+    }
+    rate-limit rps=20 burst=40
+}
+
+// Static files and a proxied application can live side by side.
+route "api.example.com" {
+    tls email="ops@example.com"
+    upstream "10.0.1.10:8080"
+}

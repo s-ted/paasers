@@ -30,14 +30,8 @@ pub fn placeholder_service() -> RouteSvc {
     RouteSvc::new(svc)
 }
 
-/// Builds the full service of one route. Inner to outer, each step returns a `RouteSvc` (rule R5).
-pub fn build_stack(
-    route: &RouteCfg,
-    balancer: Arc<Balancer>,
-    shared: &Shared,
-    trusted: Arc<Vec<IpNet>>,
-    https_port: Option<u16>,
-) -> Result<RouteSvc, BuildError> {
+/// Reverse proxy terminal service with its fallback page and optional cache.
+fn proxied(route: &RouteCfg, balancer: Arc<Balancer>, shared: &Shared, trusted: Arc<Vec<IpNet>>) -> RouteSvc {
     let svc = RouteSvc::new(ProxyService::new(
         balancer,
         shared.client.clone(),
@@ -46,12 +40,30 @@ pub fn build_stack(
         shared.tunnels.clone(),
     ));
     let svc = RouteSvc::new(FallbackLayer::new(route.fallback.clone()).layer(svc));
-    let svc = match &route.cache {
+    match &route.cache {
         Some(c) => {
             let cache = shared.caches.get_or_create(&route.id, c, &route.upstreams);
             RouteSvc::new(CacheLayer::new(cache).layer(svc))
         }
         None => svc,
+    }
+}
+
+/// Builds the full service of one route. Inner to outer, each step returns a `RouteSvc` (rule R5).
+pub fn build_stack(
+    route: &RouteCfg,
+    balancer: Arc<Balancer>,
+    shared: &Shared,
+    trusted: Arc<Vec<IpNet>>,
+    https_port: Option<u16>,
+) -> Result<RouteSvc, BuildError> {
+    let svc = match &route.static_files {
+        Some(sf) => {
+            let files = crate::staticfiles::StaticService::new(sf)
+                .map_err(|e| BuildError::Router(format!("static {}: {e}", sf.root.display())))?;
+            RouteSvc::new(files)
+        }
+        None => proxied(route, balancer, shared, trusted),
     };
     // Compression sits above the cache: hits are compressed too, and the cache stores one representation.
     let svc = match &route.compression {

@@ -64,7 +64,10 @@ pub struct RouteCfg {
     pub hosts: Vec<String>,
     pub tls: Option<TlsCfg>,
     pub redirect_https: bool,
+    /// Empty for a static route.
     pub upstreams: Vec<UpstreamCfg>,
+    /// Serves a directory instead of proxying (`static`).
+    pub static_files: Option<StaticCfg>,
     pub health: HealthCfg,
     pub request_timeout: Duration,
     pub cache: Option<CacheCfg>,
@@ -96,6 +99,18 @@ pub enum TlsMode {
 pub struct AcmeTarget {
     pub email: String,
     pub staging: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaticCfg {
+    pub root: PathBuf,
+    /// Index file name, empty when disabled.
+    pub index: String,
+    pub listing: bool,
+    pub spa: bool,
+    pub hidden: bool,
+    pub follow_symlinks: bool,
+    pub cache_control: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

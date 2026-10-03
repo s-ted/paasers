@@ -16,6 +16,7 @@ fn rfc3339(unix: i64) -> String {
 fn features(r: &RouteRuntime) -> Vec<&'static str> {
     let c = &r.cfg;
     [
+        (c.static_files.is_some(), "static"),
         (c.cache.is_some(), "cache"),
         (c.compression.is_some(), "compression"),
         (c.geoip.is_some(), "geoip"),
@@ -70,6 +71,7 @@ pub fn route_json(r: &RouteRuntime, certs: &CertReport) -> Value {
     };
     json!({
         "id": &*r.id, "hosts": r.hosts, "tls": tls, "upstreams": ups,
+        "static_dir": r.cfg.static_files.as_ref().map(|s| s.root.display().to_string()),
         "healthy_upstreams": r.balancer.healthy_count(), "total_upstreams": r.balancer.upstreams.len(),
         "cache": r.cache.as_ref().map(|c| c.stats()),
         "certificates": certificates(r, certs), "features": features(r),

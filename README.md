@@ -60,6 +60,7 @@ Each page documents the defaults and gives configuration examples.
 |---|---|
 | [Global settings](docs/features/gateway.md) | listeners, logs, limits, trusted proxies |
 | [Routing and load balancing](docs/features/routing.md) | hosts, wildcards, weights, timeouts, WebSocket |
+| [Static files](docs/features/static.md) | serve a directory: listing, index, SPA mode, Range |
 | [Health checks](docs/features/health-checks.md) | HTTP or TCP probes, thresholds |
 | [TLS and certificates](docs/features/tls.md) | Let's Encrypt, `certs-dir`, self-signed |
 | [Maintenance page](docs/features/fallback.md) | Incident ID, HTML or JSON |
@@ -73,7 +74,7 @@ Each page documents the defaults and gives configuration examples.
 | [Transform](docs/features/transform.md) | headers and status codes |
 | [MCP server](docs/features/mcp.md) | incident investigation by an AI agent |
 
-Layer order for every request: GeoIP, rate limit, gatekeeper, API key, JWT, transform, compression, cache, fallback, proxy.
+Layer order for every request: GeoIP, rate limit, gatekeeper, API key, JWT, transform, compression, cache, fallback, then the proxy or the static file service.
 
 The format is KDL (v1 and v2 accepted). Any unknown node or property is an error, and `${X}-env` options read an environment variable at load time.
 
@@ -98,14 +99,14 @@ paasers is deliberately narrow: an HTTP edge gateway for a fleet of private back
 | **Geo-IP filtering** | ✅ built in: MaxMind database, country allow or block, country header | ⚠️ community plugins only | ⚠️ `ngx_http_geoip_module`, not built by default, legacy database format | ⚠️ third party modules (`mod_maxminddb`) |
 | **Rate limiting** | ✅ built in: per IP, global and per path | ✅ built in: `RateLimit` middleware | ✅ built in: `limit_req`, per key | ⚠️ `mod_ratelimit` only limits bandwidth, request rates need third party modules (`mod_evasive`, `mod_qos`) |
 | **HTTP/3 (QUIC)** | ❌ | ✅ | ✅ | ⚠️ experimental third party module |
-| **Static files, FastCGI, scripting** | ❌ | ❌ | ✅ built in | ✅ built in, plus a huge module ecosystem |
+| **Static files, FastCGI, scripting** | ⚠️ static files only (listing, index, SPA mode, Range), no FastCGI or scripting | ❌ | ✅ built in | ✅ built in, plus a huge module ecosystem |
 | **Ecosystem and track record** | new, single project | large community | very large, decades in production | very large, decades in production |
 
 Legend: ✅ built in the core product, ⚠️ available only as a separate module, plugin, extension or paid edition, ❌ not available.
 
 **Choose paasers when** you run a small PaaS or a set of preview environments behind one VM, want HTTPS, canary routing, a login in front of staging and fast incident triage with almost no configuration, and your backends have stable private IPs.
 
-**Choose something else when** you need dynamic discovery (Kubernetes, Docker), wildcard certificates issued automatically, HTTP/3, TCP or UDP proxying, metrics dashboards, backends reached by name or over TLS, static file serving, or the safety of a project with a long production history.
+**Choose something else when** you need dynamic discovery (Kubernetes, Docker), wildcard certificates issued automatically, HTTP/3, TCP or UDP proxying, metrics dashboards, backends reached by name or over TLS, FastCGI or scripting, or the safety of a project with a long production history.
 
 They also combine well: paasers can sit behind another load balancer (`trusted-proxies`), or in front of an application server that serves static files itself.
 
