@@ -140,7 +140,7 @@ async fn specs_example_serves() {
     )
     .await;
     assert!(
-        r.starts_with("HTTP/1.1 200") && r.contains("Environnement de Pr"),
+        r.starts_with("HTTP/1.1 200") && r.contains("Preview Environment"),
         "{r}"
     );
     // Any host that is not in the file is unknown.
