@@ -4,53 +4,22 @@
 //! conditional requests, `HEAD`) is delegated to tower-http `ServeFile`.
 pub mod listing;
 pub mod path;
+mod sync_body;
 
 use crate::config::StaticCfg;
 use crate::prelude::{Body, Req, Resp, boxed, empty, simple};
-use bytes::Bytes;
 use http::{HeaderValue, Method, StatusCode, header};
-use http_body::Frame;
-use http_body_util::BodyExt;
-use http_body_util::combinators::UnsyncBoxBody;
-use listing::Entry;
 use path::{Parsed, PathError};
 use std::convert::Infallible;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::task::{Context, Poll};
+use sync_body::SyncBody;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
-
-/// `ServeFile` bodies are `Send` only, the gateway body type also needs `Sync`.
-/// The mutex is never contended: `poll_frame` has exclusive access (`&mut self`).
-struct SyncBody(Mutex<UnsyncBoxBody<Bytes, io::Error>>);
-
-impl http_body::Body for SyncBody {
-    type Data = Bytes;
-    type Error = io::Error;
-
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, io::Error>>> {
-        let inner = self.get_mut().0.get_mut().unwrap_or_else(PoisonError::into_inner);
-        Pin::new(inner).poll_frame(cx)
-    }
-
-    fn is_end_stream(&self) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_end_stream()
-    }
-
-    fn size_hint(&self) -> http_body::SizeHint {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).size_hint()
-    }
-}
 
 #[derive(Clone)]
 pub struct StaticService {
@@ -203,7 +172,7 @@ async fn serve_dir(cfg: &StaticCfg, dir: &Path, parsed: &Parsed, req: &Req, head
     if !cfg.listing {
         return not_found();
     }
-    let Ok((entries, truncated)) = read_entries(cfg, dir).await else {
+    let Ok((entries, truncated)) = listing::read_entries(cfg, dir).await else {
         return not_found();
     };
     let display = {
@@ -234,45 +203,6 @@ async fn serve_dir(cfg: &StaticCfg, dir: &Path, parsed: &Parsed, req: &Req, head
     r
 }
 
-async fn read_entries(cfg: &StaticCfg, dir: &Path) -> io::Result<(Vec<Entry>, bool)> {
-    let mut rd = tokio::fs::read_dir(dir).await?;
-    let mut out = Vec::new();
-    let mut truncated = false;
-    while let Some(de) = rd.next_entry().await? {
-        let Ok(name) = de.file_name().into_string() else {
-            continue;
-        };
-        if name.starts_with('.') && !cfg.hidden {
-            continue;
-        }
-        if out.len() >= listing::MAX_ENTRIES {
-            truncated = true;
-            break;
-        }
-        let Ok(ft) = de.file_type().await else { continue };
-        let md = if ft.is_symlink() {
-            if !cfg.follow_symlinks {
-                continue;
-            }
-            tokio::fs::metadata(de.path()).await
-        } else {
-            de.metadata().await
-        };
-        let Ok(md) = md else { continue };
-        if !(md.is_dir() || md.is_file()) {
-            continue;
-        }
-        out.push(Entry {
-            name,
-            is_dir: md.is_dir(),
-            size: md.len(),
-            modified: md.modified().ok(),
-        });
-    }
-    listing::sort(&mut out);
-    Ok((out, truncated))
-}
-
 async fn serve_file(cfg: &StaticCfg, file: &Path, req: &Req) -> Resp {
     let mut inner = http::Request::new(());
     *inner.method_mut() = req.method().clone();
@@ -282,7 +212,7 @@ async fn serve_file(cfg: &StaticCfg, file: &Path, req: &Req) -> Resp {
         Err(e) => match e {},
     };
     let (parts, body) = resp.into_parts();
-    let body: Body = boxed(SyncBody(Mutex::new(body.boxed_unsync())));
+    let body: Body = boxed(SyncBody::new(body));
     let mut resp = http::Response::from_parts(parts, body);
     if resp.status() == StatusCode::NOT_FOUND {
         return not_found();

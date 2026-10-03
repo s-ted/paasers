@@ -5,6 +5,42 @@ edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 description = "PaaS edge gateway & ingress proxy"
+repository = "https://github.com/s-ted/paasers"
+readme = "README.md"
+keywords = ["reverse-proxy", "gateway", "acme", "ingress", "tls"]
+categories = ["network-programming", "web-programming::http-server", "command-line-utilities"]
+# Only what is needed to build: tests, plans and fixtures stay in the git repository.
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
+
+# `cargo binstall paasers`: prebuilt archives attached to the GitHub release by .github/workflows/release.yml.
+# Archive layout: paasers-<version>-<target>/paasers[.exe] (+ README and licenses), signed with minisign.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+disabled-strategies = ["quick-install"]
+
+[package.metadata.binstall.signing]
+algorithm = "minisign"
+pubkey = "RWSejPf058zYfUwKUqoKW+2SIIY7g4Ahz7Ku6o0pzoiscLGHyr1bxaD1"
+
+# Static musl binaries run on any Linux: serve them to glibc hosts too.
+[package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-x86_64-unknown-linux-musl.tar.gz"
+bin-dir = "{ name }-{ version }-x86_64-unknown-linux-musl/{ bin }"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-aarch64-unknown-linux-musl.tar.gz"
+bin-dir = "{ name }-{ version }-aarch64-unknown-linux-musl/{ bin }"
+
+# Windows is built with the gnu ABI (zig), statically linked: also the answer for msvc hosts.
+[package.metadata.binstall.overrides.x86_64-pc-windows-gnu]
+pkg-fmt = "zip"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-x86_64-pc-windows-gnu.zip"
+bin-dir = "{ name }-{ version }-x86_64-pc-windows-gnu/{ bin }.exe"
+pkg-fmt = "zip"
 
 [lib]
 path = "src/lib.rs"
