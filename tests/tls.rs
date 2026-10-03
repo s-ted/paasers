@@ -104,8 +104,8 @@ fn https_addr(g: &GatewayHandle) -> SocketAddr {
 fn kdl(upstream: SocketAddr, pki: &TestPki, storage: &std::path::Path) -> String {
     format!(
         "gateway {{\n listen \"127.0.0.1:0\" \"127.0.0.1:0\"\n storage-path \"{}\"\n certs-dir \"{}\"\n}}\nroute \"secure.test\" {{\n tls\n upstream \"{upstream}\"\n}}\n",
-        storage.display(),
-        pki.certs_dir.path().display(),
+        kp(storage),
+        kp(pki.certs_dir.path()),
     )
 }
 
@@ -191,7 +191,7 @@ async fn acme_route_serves_self_signed_before_issuance() {
     let dir = tempfile::tempdir().unwrap();
     let src = format!(
         "gateway {{\n listen \"127.0.0.1:0\" \"127.0.0.1:0\"\n storage-path \"{}\"\n acme-directory \"https://127.0.0.1:1/dir\"\n}}\nroute \"acme.test\" \"www.acme.test\" {{\n tls email=\"a@b.c\"\n upstream \"{backend}\"\n}}\n",
-        dir.path().join("c.db").display()
+        kp(dir.path().join("c.db"))
     );
     let g = spawn_gateway(&src).await;
     // A verifier that accepts anything: we only inspect the presented certificate.
@@ -276,7 +276,7 @@ async fn acme_challenge_is_served_on_http_listener() {
     let dir = tempfile::tempdir().unwrap();
     let src = format!(
         "gateway {{\n listen \"127.0.0.1:0\" \"127.0.0.1:0\"\n storage-path \"{}\"\n acme-directory \"https://127.0.0.1:1/dir\"\n}}\nroute \"acme.test\" {{\n tls email=\"a@b.c\"\n upstream \"{backend}\"\n}}\n",
-        dir.path().join("c.db").display()
+        kp(dir.path().join("c.db"))
     );
     let g = spawn_gateway(&src).await;
     g.shared.challenges.put("tok-1".into(), "tok-1.thumbprint".into());
@@ -354,8 +354,8 @@ async fn presented(g: &GatewayHandle, sni: &str) -> CertificateDer<'static> {
 fn gw(storage: &std::path::Path, certs: &std::path::Path, routes: &str) -> String {
     format!(
         "gateway {{\n listen \"127.0.0.1:0\" \"127.0.0.1:0\"\n storage-path \"{}\"\n certs-dir \"{}\"\n acme-directory \"https://127.0.0.1:1/dir\"\n default-email \"a@b.c\"\n}}\n{routes}",
-        storage.display(),
-        certs.display()
+        kp(storage),
+        kp(certs)
     )
 }
 
@@ -514,7 +514,7 @@ async fn self_signed_route_serves_generated_cert() {
     let dir = tempfile::tempdir().unwrap();
     let src = format!(
         "gateway {{\n listen \"127.0.0.1:0\" \"127.0.0.1:0\"\n storage-path \"{}\"\n}}\nroute \"lan.test\" \"*.lan.test\" {{\n tls self-signed=#true\n upstream \"{backend}\"\n}}\n",
-        dir.path().join("c.db").display()
+        kp(dir.path().join("c.db"))
     );
     let g = spawn_gateway(&src).await;
     for sni in ["lan.test", "x.lan.test"] {

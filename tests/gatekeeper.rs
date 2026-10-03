@@ -134,7 +134,7 @@ async fn six_wrong_attempts_give_429() {
 async fn session_key_survives_restart_and_psk_change_invalidates() {
     let (backend, _h) = spawn_echo_backend_with_cookie().await;
     let dir = tempfile::tempdir().unwrap();
-    let storage = format!("storage-path \"{}\"", dir.path().join("c.db").display());
+    let storage = format!("storage-path \"{}\"", kp(dir.path().join("c.db")));
     let src = |hash: &str| {
         kdl(backend, "")
             .replacen(

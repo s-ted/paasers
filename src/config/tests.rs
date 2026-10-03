@@ -9,6 +9,11 @@ const GEO: &str = concat!(
     "/tests/fixtures/GeoIP2-Country-Test.mmdb"
 );
 
+/// A path as the inside of a KDL string: Windows backslashes are KDL escapes, forward slashes work everywhere.
+fn kp(p: &std::path::Path) -> String {
+    p.display().to_string().replace('\\', "/")
+}
+
 fn env(k: &str) -> Option<String> {
     match k {
         "JWT_SECRET_KEY" => Some("test-secret-at-least-32-bytes-long!!".into()),
@@ -37,7 +42,7 @@ fn specs(file: &str) -> Config {
         "/var/lib/geoip/GeoLite2-Country.mmdb",
         "tests/fixtures/GeoIP2-Country-Test.mmdb",
     );
-    parse(&src.replace("tests/fixtures/GeoIP2-Country-Test.mmdb", GEO)).unwrap()
+    parse(&src.replace("tests/fixtures/GeoIP2-Country-Test.mmdb", &kp(GEO.as_ref()))).unwrap()
 }
 
 #[test]
@@ -249,7 +254,7 @@ fn local_cert_satisfies_wildcard_and_no_email_warns() {
     let d = certs_dir(&["*.a.com"]);
     let s = format!(
         "gateway {{ certs-dir \"{}\" }}\nroute \"*.a.com\" {{ upstream \"10.0.0.1:80\"\n tls }}",
-        d.path().display()
+        kp(d.path())
     );
     let cfg = parse(&s).unwrap();
     assert!(matches!(
@@ -280,8 +285,9 @@ fn redirect_https_default_true_for_all_modes() {
 
 #[test]
 fn feature_defaults() {
+    let geo = kp(GEO.as_ref());
     let r = parse(&route(&format!(
-        "cache\n compression\n geoip database=\"{GEO}\"\n rate-limit rps=10\n api-keys {{ key \"{}\" name=\"ci\" }}\n transform",
+        "cache\n compression\n geoip database=\"{geo}\"\n rate-limit rps=10\n api-keys {{ key \"{}\" name=\"ci\" }}\n transform",
         "47BD0E2F856FE258EBBA4D00930AB811D0C004DAFAE068C9D72511CA3512CCA6"
     )))
     .unwrap()
@@ -311,10 +317,11 @@ fn feature_defaults() {
 
 #[test]
 fn feature_all_properties() {
+    let geo = kp(GEO.as_ref());
     let r = parse(&route(&format!(
         r#"cache max-size="1MiB" stale-while-revalidate="5s" stale-if-error=10 default-ttl="1m" max-object-size="512KiB"
         compression zstd=#false brotli=#false gzip=#true min-size=10
-        geoip database="{GEO}" allow-countries="fr, be" inject-header=#false
+        geoip database="{geo}" allow-countries="fr, be" inject-header=#false
         rate-limit rps=5 burst=20 path="/login"
         rate-limit rps=50
         api-keys header="X-K" {{ key "{}" name="a" }}"#,
@@ -483,7 +490,8 @@ fn jwt_secret_env_missing() {
 
 #[test]
 fn geoip_block_and_allow() {
-    let g = format!("geoip database=\"{GEO}\" block-countries=\"CN\" allow-countries=\"FR\"");
+    let geo = kp(GEO.as_ref());
+    let g = format!("geoip database=\"{geo}\" block-countries=\"CN\" allow-countries=\"FR\"");
     assert!(err(&route(&g)).contains("mutually exclusive"));
 }
 
@@ -577,7 +585,7 @@ fn tmp_dir() -> tempfile::TempDir {
 #[test]
 fn static_defaults() {
     let d = tmp_dir();
-    let p = d.path().display();
+    let p = kp(d.path());
     let r = parse(&static_route(&format!("static \"{p}\"")))
         .unwrap()
         .routes
@@ -593,7 +601,7 @@ fn static_defaults() {
 #[test]
 fn static_all_properties() {
     let d = tmp_dir();
-    let p = d.path().display();
+    let p = kp(d.path());
     let r = parse(&static_route(&format!(
         "static \"{p}\" index=\"home.htm\" listing=#false spa=#true hidden=#true follow-symlinks=#true cache-control=\"max-age=60\""
     )))
@@ -616,7 +624,7 @@ fn static_and_upstream_are_exclusive() {
     let d = tmp_dir();
     let e = err(&static_route(&format!(
         "static \"{}\"\n upstream \"10.0.0.1:80\"",
-        d.path().display()
+        kp(d.path())
     )));
     assert!(e.contains("mutually exclusive"), "{e}");
 }
@@ -630,10 +638,7 @@ fn static_rejects_proxy_only_nodes() {
         "cache max-size=\"1MB\"",
         "fallback status=503",
     ] {
-        let e = err(&static_route(&format!(
-            "static \"{}\"\n {node}",
-            d.path().display()
-        )));
+        let e = err(&static_route(&format!("static \"{}\"\n {node}", kp(d.path()))));
         assert!(e.contains("does not apply to a static route"), "{node}: {e}");
     }
 }
@@ -643,7 +648,7 @@ fn static_keeps_other_layers() {
     let d = tmp_dir();
     let r = parse(&static_route(&format!(
         "static \"{}\"\n rate-limit rps=5 burst=5\n compression off",
-        d.path().display()
+        kp(d.path())
     )))
     .unwrap()
     .routes
@@ -656,11 +661,11 @@ fn static_keeps_other_layers() {
 fn static_directory_must_exist_and_be_a_directory() {
     let d = tmp_dir();
     let missing = d.path().join("nope");
-    let e = err(&static_route(&format!("static \"{}\"", missing.display())));
+    let e = err(&static_route(&format!("static \"{}\"", kp(&missing))));
     assert!(e.contains("not a directory"), "{e}");
     let file = d.path().join("f.txt");
     std::fs::write(&file, "x").unwrap();
-    let e = err(&static_route(&format!("static \"{}\"", file.display())));
+    let e = err(&static_route(&format!("static \"{}\"", kp(&file))));
     assert!(e.contains("not a directory"), "{e}");
 }
 
@@ -670,7 +675,7 @@ fn static_index_must_be_a_plain_file_name() {
     for bad in ["a/b.html", "..", "../x"] {
         let e = err(&static_route(&format!(
             "static \"{}\" index=\"{bad}\"",
-            d.path().display()
+            kp(d.path())
         )));
         assert!(e.contains("index"), "{bad}: {e}");
     }
@@ -679,7 +684,7 @@ fn static_index_must_be_a_plain_file_name() {
 #[test]
 fn static_argument_and_duplicates() {
     let d = tmp_dir();
-    let p = d.path().display();
+    let p = kp(d.path());
     assert!(err(&static_route("static")).contains("argument"));
     assert!(err(&static_route(&format!("static \"{p}\" bogus=1"))).contains("unknown property"));
     let e = err(&static_route(&format!("static \"{p}\"\n static \"{p}\"")));
@@ -694,7 +699,7 @@ fn static_example_parses() {
     for dir in ["/srv/site", "/srv/app/dist", "/srv/downloads"] {
         let real = d.path().join(dir.trim_start_matches('/'));
         std::fs::create_dir_all(&real).unwrap();
-        src = src.replace(&format!("\"{dir}\""), &format!("\"{}\"", real.display()));
+        src = src.replace(&format!("\"{dir}\""), &format!("\"{}\"", kp(&real)));
     }
     let c = parse(&src).unwrap();
     assert_eq!(c.routes.len(), 5);
@@ -735,7 +740,7 @@ fn cache_off_and_static_has_no_default_cache() {
     assert!(parse(&route("cache off")).unwrap().routes[0].cache.is_none());
     assert!(err(&route("cache nope")).contains("only the argument"));
     let d = tmp_dir();
-    let r = parse(&static_route(&format!("static \"{}\"", d.path().display())))
+    let r = parse(&static_route(&format!("static \"{}\"", kp(d.path()))))
         .unwrap()
         .routes
         .remove(0);
@@ -869,7 +874,7 @@ fn every_default_feature_can_be_disabled() {
     let d = tmp_dir();
     let s = parse(&static_route(&format!(
         "static \"{}\" listing=#false",
-        d.path().display()
+        kp(d.path())
     )))
     .unwrap();
     assert!(!s.routes[0].static_files.as_ref().unwrap().listing);

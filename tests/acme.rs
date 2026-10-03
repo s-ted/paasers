@@ -81,7 +81,7 @@ async fn issues_a_certificate_through_pebble() {
     let dir = tempfile::tempdir().unwrap();
     let src = format!(
         "gateway {{\n listen \"[::]:{HTTP_PORT}\" \"[::]:{HTTPS_PORT}\"\n storage-path \"{}\"\n acme-directory \"https://127.0.0.1:14000/dir\"\n acme-ca-root \"{pebble_dir}/pebble.minica.pem\"\n default-email \"t@example.com\"\n}}\nroute \"{DOMAIN}\" {{\n tls\n upstream \"{backend}\"\n}}\n",
-        dir.path().join("db").display()
+        kp(dir.path().join("db"))
     );
     let cfg = paasers::config::parse_str(&src, &|_| None).unwrap();
     let (tx, rx) = tokio::sync::oneshot::channel();

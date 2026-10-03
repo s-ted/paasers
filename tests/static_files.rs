@@ -47,7 +47,7 @@ fn site() -> Site {
 fn kdl(s: &Site, props: &str, extra: &str) -> String {
     format!(
         "gateway {{\n listen \"127.0.0.1:0\"\n}}\nroute \"s.test\" {{\n static \"{}\" {props}\n{extra}\n}}\n",
-        s.root.display()
+        kp(&s.root)
     )
 }
 
@@ -348,7 +348,7 @@ async fn coexists_with_proxy_routes() {
     let (backend, _h) = spawn_echo_backend().await;
     let src = format!(
         "gateway {{\n listen \"127.0.0.1:0\"\n}}\nroute \"s.test\" {{\n static \"{}\"\n}}\nroute \"app.test\" {{\n upstream \"{backend}\"\n}}\n",
-        s.root.display()
+        kp(&s.root)
     );
     let g = spawn_gateway(&src).await;
     let (h, b) = fetch(&g, "GET", "/hello.txt", "").await;

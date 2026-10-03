@@ -81,7 +81,7 @@ fn write_atomic(path: &Path, content: &str) {
 async fn reload_on_file_change_and_invalid_reload_keeps_old() {
     let (b, _j) = spawn_echo_backend().await;
     let dir = tempfile::tempdir().unwrap();
-    let storage = format!("storage-path \"{}\"", dir.path().join("c.db").display());
+    let storage = format!("storage-path \"{}\"", kp(dir.path().join("c.db")));
     let path = dir.path().join("gw.kdl");
     std::fs::write(&path, src(&storage, &route("one.test", b))).unwrap();
     let (addr, shared, token, task) = start(&path).await;
@@ -132,7 +132,7 @@ async fn reload_on_file_change_and_invalid_reload_keeps_old() {
 async fn health_state_survives_reload() {
     let (b, _j) = spawn_echo_backend().await;
     let dir = tempfile::tempdir().unwrap();
-    let storage = format!("storage-path \"{}\"", dir.path().join("c.db").display());
+    let storage = format!("storage-path \"{}\"", kp(dir.path().join("c.db")));
     let path = dir.path().join("gw.kdl");
     std::fs::write(&path, src(&storage, &route("one.test", b))).unwrap();
     let (addr, shared, token, task) = start(&path).await;
@@ -161,7 +161,7 @@ async fn inflight_request_survives_reload() {
     })
     .await;
     let dir = tempfile::tempdir().unwrap();
-    let storage = format!("storage-path \"{}\"", dir.path().join("c.db").display());
+    let storage = format!("storage-path \"{}\"", kp(dir.path().join("c.db")));
     let path = dir.path().join("gw.kdl");
     std::fs::write(&path, src(&storage, &route("slow.test", slow))).unwrap();
     let (addr, _shared, token, task) = start(&path).await;
@@ -184,7 +184,7 @@ async fn inflight_request_survives_reload() {
 async fn restart_only_settings_are_ignored() {
     let (b, _j) = spawn_echo_backend().await;
     let dir = tempfile::tempdir().unwrap();
-    let storage = format!("storage-path \"{}\"", dir.path().join("c.db").display());
+    let storage = format!("storage-path \"{}\"", kp(dir.path().join("c.db")));
     let path = dir.path().join("gw.kdl");
     std::fs::write(&path, src(&storage, &route("one.test", b))).unwrap();
     let (addr, _shared, token, task) = start(&path).await;
