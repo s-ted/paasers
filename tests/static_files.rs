@@ -11,6 +11,7 @@ const HASH: &str =
 struct Site {
     _tmp: tempfile::TempDir,
     root: std::path::PathBuf,
+    #[cfg_attr(not(unix), allow(dead_code))]
     outside: std::path::PathBuf,
 }
 

@@ -73,18 +73,31 @@ fn open_connection(path: &Path) -> Result<rusqlite::Connection, StorageError> {
     Ok(c)
 }
 
+/// Creates the directory (and parents) readable by the owner only. Windows relies on inherited ACLs.
+fn private_dir(p: &Path) -> std::io::Result<()> {
+    let mut b = std::fs::DirBuilder::new();
+    b.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+    b.create(p)
+}
+
+/// Creates an empty file readable by the owner only. Windows relies on inherited ACLs.
+fn private_file(p: &Path) -> std::io::Result<()> {
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    o.open(p).map(|_| ())
+}
+
 impl Db {
     pub async fn open(path: &Path) -> Result<Db, StorageError> {
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
         if let Some(p) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(p)?;
+            private_dir(p)?;
         }
         if !path.exists() {
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(path)?;
+            private_file(path)?;
         }
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Job>(256);
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<Result<(), StorageError>>();
@@ -128,8 +141,10 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn open_creates_file_0600_and_wal() {
         let dir = tempfile::tempdir().unwrap();

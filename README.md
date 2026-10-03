@@ -25,7 +25,7 @@ route "app.example.com" {
 ```
 
 ```bash
-cargo zigbuild --release --target x86_64-unknown-linux-musl    # static binary (or aarch64-unknown-linux-musl)
+scripts/build-release.sh                      # dist/: static amd64 and arm64 (Raspberry Pi) Linux, plus Windows
 paasers check -c gateway.kdl    # validate (exit code 2 and a line:column diagnostic on error)
 paasers run   -c gateway.kdl
 ```
@@ -156,6 +156,7 @@ They also combine well: paasers can sit behind another load balancer (`trusted-p
 * The cache is in memory (lost on restart), one variant per URL, no coalescing of concurrent misses.
 * ACME uses HTTP-01 only, so wildcard hosts need a certificate in `certs-dir` (or `tls self-signed=#true`).
 * WebSocket works over HTTP/1.1 only.
+* Targets: `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` (Raspberry Pi 4/5 on a 64 bit OS) and `x86_64-pc-windows-gnu`. On Windows there is no SIGHUP (config changes are picked up by the 2 s file watcher), the SQLite file relies on inherited ACLs instead of mode 0600, and the systemd unit does not apply. 32 bit Raspberry Pi OS is not covered.
 
 ## Development
 
