@@ -1,27 +1,22 @@
 # paasers
 
-A single static binary that terminates TLS, routes by host name and proxies to your private backends. It is the edge gateway of a PaaS: automatic Let's Encrypt certificates, weighted load balancing with health checks, an HTTP cache, a "preview environment" gatekeeper, and an MCP server so an AI agent can investigate incidents from the **Incident ID** shown to your users.
+**The edge gateway of a PaaS in a single static binary.** Automatic TLS, host-based routing, load balancing, caching, access protection and AI-assisted incident diagnosis. One config file, one SQLite file, no external service.
 
-* One KDL config file, one SQLite file, no external service.
-* Hot reload (`SIGHUP` or file change), graceful shutdown.
-* Memory budget: 32 MB. Measured on the static musl release build after 1000 requests with an empty cache: about 21.5 MB with the default of up to 4 worker threads, about 19 MB with `worker-threads 2` (`scripts/rss.sh`). The cache grows this by up to its `max-size`.
+## Why paasers
 
-## Build
-
-```bash
-cargo build --release                                   # dynamic, for development
-cargo zigbuild --release --target x86_64-unknown-linux-musl   # static binary
-```
-
-Build without passkeys (and without OpenSSL): `--no-default-features`.
+* **Effortless HTTPS**: Let's Encrypt certificates are issued and renewed automatically, a temporary certificate is served while issuance runs, local certificates and wildcards are supported.
+* **One static executable, zero dependency**: no runtime, no shared library, no sidecar, no external database. Copy the file to a machine and run it. Built with musl and verified as statically linked for Linux x86_64 (about 21 MB) and aarch64 (about 19 MB). Glibc builds work too.
+* **Lightweight**: 32 MB memory budget. Measured at about 21.5 MB after 1000 requests (19 MB with `worker-threads 2`).
+* **Safe deployments**: weighted traffic split (canary, blue/green), active health checks, automatic retry on another backend, draining with `weight=0`.
+* **Incidents solved in one sentence**: when a backend goes down, users see a maintenance page with an **Incident ID**. An AI agent passes it to the built-in MCP server and gets the root cause.
+* **Protected previews**: shared password, TOTP and passkeys, with brute force protection.
+* **Built-in security**: GeoIP, rate limiting, JWT, API keys, trusted identity headers are always sanitized.
+* **Fast**: RFC 9111 cache with stale-while-revalidate and stale-if-error, zstd/brotli/gzip compression on by default.
+* **Easy to operate**: hot reload (`SIGHUP` or file change), graceful shutdown, an invalid config never replaces a good one, errors report line and column.
 
 ## Quick start
 
 ```kdl
-gateway {
-    listen ":80" ":443"
-}
-
 route "app.example.com" {
     tls email="ops@example.com"
     upstream "10.0.0.10:8080"
@@ -29,11 +24,90 @@ route "app.example.com" {
 ```
 
 ```bash
-paasers check -c gateway.kdl      # validate (exit code 2 and a line:column diagnostic on error)
+cargo zigbuild --release --target x86_64-unknown-linux-musl    # static binary (or aarch64-unknown-linux-musl)
+paasers check -c gateway.kdl    # validate (exit code 2 and a line:column diagnostic on error)
 paasers run   -c gateway.kdl
 ```
 
-Certificates are issued over ACME HTTP-01, so port 80 must be reachable from the Internet. Until the first certificate is issued a temporary self-signed certificate is served.
+Certificates use ACME HTTP-01, so port 80 must be reachable from the Internet. Without a `gateway` block, the gateway listens on `:80` and `:443`.
+
+## A complete example
+
+```kdl
+mcp-server { token-env "MCP_TOKEN" }
+
+route "client.com" "www.client.com" {
+    tls email="admin@example.com"
+    upstream "10.0.1.10:8080" weight=90     // 90/10 canary
+    upstream "10.0.1.20:8080" weight=10
+    cache max-size="256MB" stale-while-revalidate="30s"
+    geoip database="/var/lib/geoip/GeoLite2-Country.mmdb" block-countries="CN,RU"
+    rate-limit rps=50 burst=100
+}
+
+route "dev.client.com" {
+    tls email="admin@example.com"
+    upstream "10.0.1.11:8080"
+    gatekeeper { psk-env "PREVIEW_PSK_HASH" }
+}
+```
+
+## Features
+
+Each page documents the defaults and gives configuration examples.
+
+| Feature | In short |
+|---|---|
+| [Global settings](docs/features/gateway.md) | listeners, logs, limits, trusted proxies |
+| [Routing and load balancing](docs/features/routing.md) | hosts, wildcards, weights, timeouts, WebSocket |
+| [Health checks](docs/features/health-checks.md) | HTTP or TCP probes, thresholds |
+| [TLS and certificates](docs/features/tls.md) | Let's Encrypt, `certs-dir`, self-signed |
+| [Maintenance page](docs/features/fallback.md) | Incident ID, HTML or JSON |
+| [HTTP cache](docs/features/cache.md) | RFC 9111, stale serving, tag purge |
+| [Compression](docs/features/compression.md) | zstd, brotli, gzip |
+| [GeoIP](docs/features/geoip.md) | block or allow by country |
+| [Rate limit](docs/features/rate-limit.md) | per IP, global or per path |
+| [Gatekeeper](docs/features/gatekeeper.md) | PSK, TOTP, passkeys |
+| [JWT](docs/features/jwt.md) | HMAC or public key, identity injection |
+| [API keys](docs/features/api-keys.md) | named SHA-256 digests |
+| [Transform](docs/features/transform.md) | headers and status codes |
+| [MCP server](docs/features/mcp.md) | incident investigation by an AI agent |
+
+Layer order for every request: GeoIP, rate limit, gatekeeper, API key, JWT, transform, compression, cache, fallback, proxy.
+
+The format is KDL (v1 and v2 accepted). Any unknown node or property is an error, and `${X}-env` options read an environment variable at load time.
+
+## How it compares
+
+paasers is deliberately narrow: an HTTP edge gateway for a fleet of private backends, with zero dependencies and a tiny footprint. Traefik, nginx and Apache httpd are far more general. This table tries to be fair about both sides. Facts about other projects were checked against their documentation in October 2026, so verify before relying on them.
+
+| | paasers | Traefik | nginx | Apache httpd |
+|---|---|---|---|---|
+| **Scope** | HTTP(S) reverse proxy and gateway | HTTP, TCP and UDP proxy, dynamic ingress | web server, HTTP, TCP and UDP proxy | web server, application hosting, reverse proxy |
+| **Config** | one KDL file, strict validation with line and column | static file plus dynamic providers (Docker, Kubernetes, Consul, files...) | own syntax, `nginx -t` | own syntax, `apachectl configtest` |
+| **Single static executable, no dependency** | ✅ | ✅ | ❌ | ❌ |
+| **Let's Encrypt** | ✅ built in, HTTP-01 only | ✅ built in, HTTP-01, TLS-ALPN-01, DNS-01 | ⚠️ separate official module, HTTP-01 and TLS-ALPN-01 | ⚠️ `mod_md` module, marked experimental, HTTP-01, TLS-ALPN-01, DNS-01 hook |
+| **HTTP cache** | ✅ built in, RFC 9111 subset, in memory, tag purge | ⚠️ plugin or paid Hub, not in the open source core | ✅ built in, disk based, mature | ⚠️ `mod_cache` module, disk or shared memory |
+| **Active health checks** | ✅ built in | ✅ built in | ⚠️ passive only in open source, active in NGINX Plus | ⚠️ `mod_proxy_hcheck` module |
+| **JWT validation** | ✅ built in, HMAC, RSA, EC, EdDSA | ⚠️ community plugins or paid Hub | ⚠️ NGINX Plus or third party modules | ⚠️ third party modules |
+| **Incident ID and AI investigation (MCP)** | ✅ built in | ❌ | ❌ | ❌ |
+| **Metrics (Prometheus, OpenTelemetry)** | ❌ | ✅ built in | ⚠️ modules or Plus | ⚠️ modules |
+| **Gatekeeping (login page for previews)** | ✅ built in: shared password, TOTP, passkeys | ⚠️ Basic and Digest auth built in, OIDC and JWT only in paid Hub, otherwise forward auth to another service | ⚠️ Basic auth built in, login pages via `auth_request` to another service, TOTP only through third party modules | ⚠️ `mod_auth_form` (HTML form, needs `mod_session` and an account store), TOTP and OIDC through third party modules |
+| **Header and status transform** | ✅ built in: set, add, remove, regex replace, status remap | ✅ built in: `Headers` middleware, regex path rewrite, status rewrite in `Errors` | ✅ built in: `add_header`, `proxy_set_header`, `return`, rewrites | ⚠️ `mod_headers` module (set, append, edit, unset) |
+| **Maintenance page** | ✅ built in, with an Incident ID, HTML or JSON | ⚠️ `Errors` middleware, needs a separate service to serve the page | ✅ built in: `error_page`, custom page file | ✅ built in: `ErrorDocument`, custom page file |
+| **Geo-IP filtering** | ✅ built in: MaxMind database, country allow or block, country header | ⚠️ community plugins only | ⚠️ `ngx_http_geoip_module`, not built by default, legacy database format | ⚠️ third party modules (`mod_maxminddb`) |
+| **Rate limiting** | ✅ built in: per IP, global and per path | ✅ built in: `RateLimit` middleware | ✅ built in: `limit_req`, per key | ⚠️ `mod_ratelimit` only limits bandwidth, request rates need third party modules (`mod_evasive`, `mod_qos`) |
+| **HTTP/3 (QUIC)** | ❌ | ✅ | ✅ | ⚠️ experimental third party module |
+| **Static files, FastCGI, scripting** | ❌ | ❌ | ✅ built in | ✅ built in, plus a huge module ecosystem |
+| **Ecosystem and track record** | new, single project | large community | very large, decades in production | very large, decades in production |
+
+Legend: ✅ built in the core product, ⚠️ available only as a separate module, plugin, extension or paid edition, ❌ not available.
+
+**Choose paasers when** you run a small PaaS or a set of preview environments behind one VM, want HTTPS, canary routing, a login in front of staging and fast incident triage with almost no configuration, and your backends have stable private IPs.
+
+**Choose something else when** you need dynamic discovery (Kubernetes, Docker), wildcard certificates issued automatically, HTTP/3, TCP or UDP proxying, metrics dashboards, backends reached by name or over TLS, static file serving, or the safety of a project with a long production history.
+
+They also combine well: paasers can sit behind another load balancer (`trusted-proxies`), or in front of an application server that serves static files itself.
 
 ## Command line
 
@@ -45,90 +119,6 @@ Certificates are issued over ACME HTTP-01, so port 80 must be reachable from the
 | `paasers hash-api-key` | read an API key on stdin, print its SHA-256 hex digest |
 | `paasers gen-totp` | print a TOTP secret (base32) and its `otpauth://` URL |
 
-## Configuration reference
-
-Both KDL v2 (`#true`) and KDL v1 (`true`) are accepted. Any unknown node or property is an error. `${X}-env` options read an environment variable at load time.
-
-### `gateway`
-
-| Node | Default |
-|---|---|
-| `listen "<http>" ["<https>"]` | `":80" ":443"` (`":80"` is dual-stack `[::]:80`). One argument means HTTP only. |
-| `storage-path "<file>"` | `/var/lib/gateway/certs.db` |
-| `acme-directory` | `production` (`staging` or an https URL) |
-| `acme-ca-root "<pem>"` | none (private ACME CA, tests) |
-| `default-email "<email>"` | none |
-| `trusted-proxies "<cidr>"...` | none. `X-Forwarded-For` is trusted only from these peers. |
-| `flight-recorder capacity=<n>` | 500 |
-| `log format="text"\|"json" level="<filter>"` | `text`, `info` (`RUST_LOG` wins) |
-| `limits max-connections max-body header-read-timeout max-headers-size` | 10000, 100MiB, 30s, 64KiB |
-| `worker-threads <n>` | `min(cpus, 4)`. Lower it on small machines to save a few MB. |
-| `default-cert "<host>"` | none (served when the client sends no SNI) |
-| `shutdown-grace "<duration>"` | 30s |
-
-`listen`, `storage-path`, `mcp-server`, `worker-threads` and `log` need a restart: a reload that changes them keeps the old values and logs a warning.
-
-### `mcp-server`
-
-`listen "<addr>"` (default `127.0.0.1:9090`), `token "<string>"` or `token-env "<VAR>"` (16 characters minimum). Without a token the listener must be loopback.
-
-### `route "<host>"... { ... }`
-
-The first host is the route id. Each host belongs to one route. `*.example.com` matches exactly one label.
-
-| Node | Notes |
-|---|---|
-| `upstream "<ip:port>" [weight=<0..1000>]` | at least one, literal IP only, weight 0 drains |
-| `health-check path interval timeout unhealthy-after healthy-after mode enabled` | active by default: `GET /` every 5s, below 500 is healthy, `mode="tcp"` for a connect probe |
-| `timeouts request="60s"` | time to receive the response headers |
-| `tls [email=..] { staging }` | auto: valid certificate from `certs-dir`, else Let's Encrypt, else temporary self-signed. `staging` uses Let's Encrypt staging for this route |
-| `tls self-signed=#true` | in-memory self-signed certificate (new on every restart), wildcards allowed |
-| `certs-dir "<dir>"` (gateway) | directory scanned for PEM certificates and keys (any file names, paired by public key, matched by SAN) |
-| `redirect-https #false` | redirect is on by default for TLS routes |
-| `fallback status=503 show-incident-id=#true title message on` | maintenance page when the backend fails |
-| `cache max-size stale-while-revalidate stale-if-error default-ttl max-object-size` | shared RFC 9111 cache |
-| `compression zstd brotli gzip min-size` / `compression off` | on by default (zstd, brotli, gzip, min-size 1024), `compression off` disables it |
-| `geoip database=.. block-countries=.. allow-countries=.. inject-header` | MaxMind country database |
-| `rate-limit rps=<n> burst=<n> [path="/prefix"]` | per client IP |
-| `gatekeeper { ... }` | see below |
-| `jwt-validation { ... }` | `secret-env` or `public-key-file`, `algorithms`, `issuer`, `audience`, `leeway`, `inject-headers`, `cookie` |
-| `api-keys header="X-Api-Key" { key "<sha256>" name="ci" }` | a valid key exempts from JWT |
-| `transform { request {..} response {..} }` | `set`, `add`, `remove`, `replace`, `status from= to=` |
-
-The request goes through the layers in this fixed order: GeoIP, rate limit, gatekeeper, API key, JWT, transform, compression, cache, fallback, proxy.
-
-Incoming `X-User-*`, `X-Jwt-Claims`, `X-Api-Key-Name` and `X-Country-Code` headers are always removed, so the backend can trust the ones it receives.
-
-## Gatekeeper (preview environments)
-
-```kdl
-gatekeeper {
-    title "Preview"
-    psk "$argon2id$v=19$m=19456,t=2,p=1$..."   // from `paasers hash-password`
-    totp-secret "<base32>"                      // optional, from `paasers gen-totp`
-    session-duration "14d"
-    rate-limit attempts=5 window="15m"
-    passkey #true                               // needs a TLS route
-}
-```
-
-Sessions are signed cookies. Changing the PSK or the TOTP secret invalidates every session. After a first login with the PSK the visitor can register a passkey and sign in with it afterwards.
-
-## Incidents and the MCP server
-
-Every response carries `traceparent` and `X-Request-Id`. When a backend is down the user sees a maintenance page with an **Incident ID** (the 32 hex digit trace id). Support gives it to an AI agent, which calls `inspect_incident`.
-
-Tools: `get_route_status`, `query_flight_recorder`, `inspect_incident`, `purge_cache`. Client configuration (Streamable HTTP):
-
-```json
-{ "mcpServers": { "paasers": { "url": "http://127.0.0.1:9090/mcp",
-    "headers": { "Authorization": "Bearer <your token>" } } } }
-```
-
-Remote access: `ssh -L 9090:127.0.0.1:9090 gateway-vm`. `GET /healthz` needs no token.
-
-Cache entries can be tagged by the backend with `Surrogate-Key: a b c` (the header is removed before reaching the client) and purged by tag with `purge_cache`.
-
 ## Operations
 
 * **Reload**: write the new file atomically (`install -m 0644 new.kdl /etc/paasers/gateway.kdl`) and it is applied within 2 seconds, or `systemctl reload paasers`. An invalid file keeps the previous configuration and is recorded as a `config` incident.
@@ -136,29 +126,24 @@ Cache entries can be tagged by the backend with `Surrogate-Key: a b c` (the head
 * **Rollback**: keep the previous binary as `paasers.prev`. The SQLite schema only evolves additively.
 * **Logs**: `info` shows 4xx and 5xx accesses, `debug` shows every request. Secrets are never logged.
 
-## Development
-
-```bash
-scripts/ci.sh                                    # fmt, clippy (two feature sets), file length
-cargo test                                       # whole suite
-cargo test --no-default-features                 # without passkeys
-scripts/pebble.sh && PEBBLE_DIR=target/pebble cargo test --test acme -- --ignored   # real ACME
-scripts/rss.sh                                   # memory budget (32 MB), needs the musl release build
-```
-
-Manual checks that cannot be automated:
-
-1. **Passkeys**: in Chrome DevTools, More tools, WebAuthn, enable a virtual authenticator (ctap2, internal, resident key, user verification). Open a TLS route with a gatekeeper, log in with the PSK, register a passkey, log out, then use "Sign in with a passkey".
-2. **MCP client**: add the configuration above to Claude Desktop or Cursor and ask for `inspect_incident <ID>`.
-3. **Let's Encrypt staging** on a machine with public DNS (`acme-directory "staging"`).
-
 ## Known limitations
 
 * Upstreams are plain HTTP over a private network, addressed by literal IP.
 * The cache is in memory (lost on restart), one variant per URL, no coalescing of concurrent misses.
-* ACME uses HTTP-01 only, so wildcard hosts need a local certificate in `certs-dir` (or `tls self-signed=#true`). `cert-file`/`key-file` were removed in favour of `certs-dir`.
+* ACME uses HTTP-01 only, so wildcard hosts need a certificate in `certs-dir` (or `tls self-signed=#true`).
 * WebSocket works over HTTP/1.1 only.
 * Passkeys pull in OpenSSL (vendored on musl). Build with `--no-default-features` to avoid it.
+
+## Development
+
+```bash
+scripts/ci.sh                         # fmt, clippy (two feature sets), file length
+cargo test                            # whole suite (also with --no-default-features)
+scripts/pebble.sh && PEBBLE_DIR=target/pebble cargo test --test acme -- --ignored   # real ACME
+scripts/rss.sh                        # memory budget (32 MB), needs the musl release build
+```
+
+Manual checks that cannot be automated: passkeys (Chrome DevTools virtual authenticator), an MCP client (Claude Desktop or Cursor with `inspect_incident <ID>`), Let's Encrypt staging on a machine with public DNS.
 
 ## License
 

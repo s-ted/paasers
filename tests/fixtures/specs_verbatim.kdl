@@ -11,11 +11,11 @@ mcp-server {
 route "client.com" "www.client.com" {
     tls email="admin@monpaas.net"
 
-    // Upstreams avec répartition de charge (Blue/Green / Canary)
+    // Upstreams with weighted load balancing (blue/green, canary)
     upstream "10.0.1.10:8080" weight=90
     upstream "10.0.1.20:8080" weight=10
 
-    // Fonctionnalités Avancées intégrées
+    // Built-in advanced features
     cache max-size="256MB" stale-while-revalidate=30
     compression zstd=true brotli=true
     geoip database="/var/lib/geoip/GeoLite2-Country.mmdb" block-countries="CN,RU"
@@ -28,8 +28,8 @@ route "dev.client.com" {
     upstream "10.0.1.11:8080"
 
     gatekeeper {
-        title "Environnement de Prévisualisation"
-        psk "$argon2id$v=19$m=19456,t=2,p=1$ftC9LdPXCcZ6MiQpvWUwXA$haZvTFqngv2fUrBLJTBmAw2Ltxdy9HonzbKTkg4bXhI" // Hash argon2id de la PSK
+        title "Preview Environment"
+        psk "$argon2id$v=19$m=19456,t=2,p=1$ftC9LdPXCcZ6MiQpvWUwXA$haZvTFqngv2fUrBLJTBmAw2Ltxdy9HonzbKTkg4bXhI" // argon2id hash of the PSK
         session-duration "14d"
         rate-limit attempts=5 window="15m"
     }
