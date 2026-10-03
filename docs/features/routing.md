@@ -6,7 +6,7 @@
 
 | Option | Default |
 |---|---|
-| number of `upstream` nodes | at least 1 required, unless the route uses [`static`](static.md) |
+| number of `upstream` nodes | any. A route without `upstream` serves a directory, see [`static`](static.md) (the current directory by default) |
 | `weight` | 1 (range 0 to 1000, 0 drains) |
 | `timeouts request=` | 60s (100ms to 1h), time allowed to receive the response headers |
 | `redirect-https` | on when the route has `tls`, off otherwise |

@@ -54,8 +54,16 @@ fn init_logs(cfg: &config::GatewayCfg) {
     };
 }
 
+/// Loads the configuration. A missing *default* file means the built-in defaults (serve the current directory).
+fn load_config(path: &std::path::Path) -> Result<config::Config, config::ConfigError> {
+    if path == std::path::Path::new(DEFAULT_CONFIG) && !path.exists() {
+        return config::parse_str("", &|k| std::env::var(k).ok());
+    }
+    config::load(path)
+}
+
 fn run(path: PathBuf) -> ExitCode {
-    let cfg = match config::load(&path) {
+    let cfg = match load_config(&path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: {}: {e}", path.display());
@@ -96,7 +104,7 @@ fn run(path: PathBuf) -> ExitCode {
 }
 
 fn check(path: PathBuf) -> ExitCode {
-    match config::load(&path) {
+    match load_config(&path) {
         Ok(c) => {
             config::warnings(&c)
                 .iter()

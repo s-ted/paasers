@@ -167,8 +167,9 @@ async fn inflight_request_survives_reload() {
     let (addr, _shared, token, task) = start(&path).await;
     let pending = tokio::spawn(async move { raw_request(addr, &req("slow.test")).await });
     tokio::time::sleep(Duration::from_millis(300)).await;
-    // Reload while the request is in flight, dropping the route entirely.
-    write_atomic(&path, &src(&storage, ""));
+    // Reload while the request is in flight, dropping the route. Another route stays, because a
+    // configuration without any route serves the current directory instead of answering 404.
+    write_atomic(&path, &src(&storage, &route("other.test", slow)));
     assert!(wait_for(addr, "slow.test", "404").await);
     let r = pending.await.unwrap();
     assert!(

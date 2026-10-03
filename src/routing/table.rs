@@ -6,6 +6,8 @@ use std::sync::Arc;
 pub struct HostTable {
     router: matchit::Router<usize>,
     routes: Vec<Arc<RouteRuntime>>,
+    /// Answers every host that matches no route (only set when no route is configured).
+    fallback: Option<Arc<RouteRuntime>>,
 }
 
 impl HostTable {
@@ -18,13 +20,29 @@ impl HostTable {
                     .map_err(|e| BuildError::Router(format!("host `{h}`: {e}")))?;
             }
         }
-        Ok(Self { router, routes })
+        Ok(Self {
+            router,
+            routes,
+            fallback: None,
+        })
+    }
+
+    /// Table whose only route answers every host.
+    pub fn catch_all(route: Arc<RouteRuntime>) -> Self {
+        Self {
+            router: matchit::Router::new(),
+            routes: Vec::new(),
+            fallback: Some(route),
+        }
     }
 
     /// `host` must be normalized and contain only `[a-z0-9.-]` (the entry service guarantees it).
     pub fn lookup(&self, host: &str) -> Option<&Arc<RouteRuntime>> {
         let key = host_key(host);
-        self.router.at(&key).ok().and_then(|m| self.routes.get(*m.value))
+        match self.router.at(&key).ok().and_then(|m| self.routes.get(*m.value)) {
+            Some(r) => Some(r),
+            None => self.fallback.as_ref(),
+        }
     }
 
     pub fn routes(&self) -> &[Arc<RouteRuntime>] {

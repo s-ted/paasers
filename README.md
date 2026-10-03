@@ -1,6 +1,6 @@
 # paasers
 
-**The edge gateway of a PaaS in a single static binary.** Automatic TLS, host-based routing, load balancing, caching, access protection and AI-assisted incident diagnosis. One config file, one SQLite file, no external service.
+**The edge gateway of a PaaS in a single static binary.** Automatic TLS, host-based routing, load balancing, static file serving, caching, access protection and AI-assisted incident diagnosis. One config file, one SQLite file, no external service.
 
 ## Why paasers
 
@@ -11,6 +11,7 @@
 * **Incidents solved in one sentence**: when a backend goes down, users see a maintenance page with an **Incident ID**. An AI agent passes it to the built-in MCP server and gets the root cause.
 * **Protected previews**: shared password, TOTP and passkeys, with brute force protection.
 * **Built-in security**: GeoIP, rate limiting, JWT, API keys, trusted identity headers are always sanitized.
+* **Static files too**: a route can serve a directory (listing, index file, single page app mode, Range) behind the same TLS, login and rate limit as a proxied route. With no configuration at all, it serves the current directory.
 * **Fast**: RFC 9111 cache with stale-while-revalidate and stale-if-error, zstd/brotli/gzip compression on by default.
 * **Easy to operate**: hot reload (`SIGHUP` or file change), graceful shutdown, an invalid config never replaces a good one, errors report line and column.
 
@@ -30,6 +31,26 @@ paasers run   -c gateway.kdl
 ```
 
 Certificates use ACME HTTP-01, so port 80 must be reachable from the Internet. Without a `gateway` block, the gateway listens on `:80` and `:443`.
+
+### Serve the current directory
+
+With no route configured, `paasers run` serves the current directory on every host, like a minimal file server (a missing default configuration file `/etc/paasers/gateway.kdl` is not an error). Directory listing is on, hidden files and symbolic links are not served.
+
+The built-in `gateway` defaults still apply: ports `:80` and `:443` and the database in `/var/lib/gateway`, which suit a service running as root or under systemd. For a quick run as a normal user, give a port and a writable database path:
+
+```kdl
+// serve.kdl
+gateway {
+    listen ":8080"
+    storage-path "/tmp/paasers.db"      // outside the served directory
+}
+```
+
+```bash
+cd ~/public && paasers run -c ~/serve.kdl
+```
+
+A route with neither `upstream` nor `static` does the same for its hosts, and `static "<dir>"` picks another directory. As soon as one route is configured, unknown hosts answer 404 as usual. See [Static files](docs/features/static.md).
 
 ## A complete example
 
@@ -80,7 +101,7 @@ The format is KDL (v1 and v2 accepted). Any unknown node or property is an error
 
 ## How it compares
 
-paasers is deliberately narrow: an HTTP edge gateway for a fleet of private backends, with zero dependencies and a tiny footprint. Traefik, nginx and Apache httpd are far more general. This table tries to be fair about both sides. Facts about other projects were checked against their documentation in October 2026, so verify before relying on them.
+paasers is deliberately narrow: an HTTP edge gateway for a fleet of private backends, plus a simple static file server, with zero dependencies and a tiny footprint. Traefik, nginx and Apache httpd are far more general. This table tries to be fair about both sides. Facts about other projects were checked against their documentation in October 2026, so verify before relying on them.
 
 | | paasers | Traefik | nginx | Apache httpd |
 |---|---|---|---|---|
@@ -99,22 +120,23 @@ paasers is deliberately narrow: an HTTP edge gateway for a fleet of private back
 | **Geo-IP filtering** | ✅ built in: MaxMind database, country allow or block, country header | ⚠️ community plugins only | ⚠️ `ngx_http_geoip_module`, not built by default, legacy database format | ⚠️ third party modules (`mod_maxminddb`) |
 | **Rate limiting** | ✅ built in: per IP, global and per path | ✅ built in: `RateLimit` middleware | ✅ built in: `limit_req`, per key | ⚠️ `mod_ratelimit` only limits bandwidth, request rates need third party modules (`mod_evasive`, `mod_qos`) |
 | **HTTP/3 (QUIC)** | ❌ | ✅ | ✅ | ⚠️ experimental third party module |
-| **Static files, FastCGI, scripting** | ⚠️ static files only (listing, index, SPA mode, Range), no FastCGI or scripting | ❌ | ✅ built in | ✅ built in, plus a huge module ecosystem |
+| **Static files** | ✅ built in: directory listing, index file, SPA mode, Range, conditional requests | ❌ not in the core (needs a separate web server) | ✅ built in | ✅ built in |
+| **FastCGI, scripting** | ❌ | ❌ | ⚠️ FastCGI built in, scripting through modules (Lua, njs) | ✅ built in (`mod_proxy_fcgi`, CGI, `mod_php` and a huge module ecosystem) |
 | **Ecosystem and track record** | new, single project | large community | very large, decades in production | very large, decades in production |
 
 Legend: ✅ built in the core product, ⚠️ available only as a separate module, plugin, extension or paid edition, ❌ not available.
 
 **Choose paasers when** you run a small PaaS or a set of preview environments behind one VM, want HTTPS, canary routing, a login in front of staging and fast incident triage with almost no configuration, and your backends have stable private IPs.
 
-**Choose something else when** you need dynamic discovery (Kubernetes, Docker), wildcard certificates issued automatically, HTTP/3, TCP or UDP proxying, metrics dashboards, backends reached by name or over TLS, FastCGI or scripting, or the safety of a project with a long production history.
+**Choose something else when** you need dynamic discovery (Kubernetes, Docker), wildcard certificates issued automatically, HTTP/3, TCP or UDP proxying, metrics dashboards, backends reached by name or over TLS, FastCGI or scripting, static serving beyond the basics (no custom error pages, rewrites or per-directory rules), or the safety of a project with a long production history.
 
-They also combine well: paasers can sit behind another load balancer (`trusted-proxies`), or in front of an application server that serves static files itself.
+They also combine well: paasers can sit behind another load balancer (`trusted-proxies`), or in front of an application server, with static assets served by paasers on a separate route.
 
 ## Command line
 
 | Command | Purpose |
 |---|---|
-| `paasers run -c <file>` | run the gateway (default `/etc/paasers/gateway.kdl`) |
+| `paasers run -c <file>` | run the gateway (default `/etc/paasers/gateway.kdl`, built-in defaults when that file does not exist) |
 | `paasers check -c <file>` | validate a configuration |
 | `paasers hash-password` | read a password on stdin, print its argon2id hash (8 characters minimum) |
 | `paasers hash-api-key` | read an API key on stdin, print its SHA-256 hex digest |
