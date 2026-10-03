@@ -25,7 +25,7 @@ route "app.example.com" {
 ```
 
 ```bash
-scripts/build-release.sh                      # dist/: static amd64 and arm64 (Raspberry Pi) Linux, plus Windows
+cargo binstall paasers          # signed prebuilt binary (Linux amd64/arm64 static, Windows), or: cargo install paasers
 paasers check -c gateway.kdl    # validate (exit code 2 and a line:column diagnostic on error)
 paasers run   -c gateway.kdl
 ```
@@ -165,7 +165,30 @@ scripts/ci.sh                         # fmt, clippy (two feature sets), file len
 cargo test                            # whole suite (also with --no-default-features)
 scripts/pebble.sh && PEBBLE_DIR=target/pebble cargo test --test acme -- --ignored   # real ACME
 scripts/rss.sh                        # memory budget (32 MB), needs the musl release build
+scripts/build-release.sh              # dist/: signed-ready archives for the 3 targets (needs cargo-zigbuild and zig)
+cargo deny check                      # advisories, licenses, sources
 ```
+
+CI runs on GitHub Actions (`.github/workflows/ci.yml`): lint, tests on native x64, arm64 and Windows runners, ACME
+against pebble, `cargo deny`, a crates.io dry run, and the release archives with a check of the cargo-binstall layout.
+
+## Releasing
+
+Bump `version` in `Cargo.toml`, commit, then push a `vX.Y.Z` tag. `.github/workflows/release.yml` builds the three
+archives, signs them with minisign, publishes the GitHub release (with `SHA256SUMS` and build provenance), publishes
+the crate on crates.io, and finally runs `cargo binstall --only-signed paasers` on Linux x64, Linux arm64 and Windows.
+
+One-time setup:
+
+* Repository secret `MINISIGN_KEY`: the content of the minisign secret key. Its public key is pinned in
+  `[package.metadata.binstall.signing]`; `scripts/sign-release.sh` refuses to sign with any other key.
+* GitHub environment `release` (optionally with required reviewers), used by the signing and publishing jobs.
+* crates.io: the first publication needs an API token in the secret `CARGO_REGISTRY_TOKEN`. Then configure trusted
+  publishing on crates.io (repository `s-ted/paasers`, workflow `release.yml`, environment `release`) and delete the
+  token: later releases authenticate through OIDC.
+
+Users can check a download by hand with `minisign -Vm <archive> -P <pubkey from Cargo.toml>` or
+`gh attestation verify <archive> -R s-ted/paasers`.
 
 Manual checks that cannot be automated: an MCP client (Claude Desktop or Cursor with `inspect_incident <ID>`), Let's Encrypt staging on a machine with public DNS.
 

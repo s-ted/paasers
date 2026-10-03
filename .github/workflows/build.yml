@@ -1,0 +1,60 @@
+# Reusable: release archives for every target, cross compiled with cargo-zigbuild on one x64 Linux runner.
+# Called by ci.yml (dry run on every PR) and release.yml (tag). Same script as locally: scripts/build-release.sh.
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      save-cache:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  ZIG_VERSION: 0.16.0
+  ZIGBUILD_VERSION: 0.23.4
+
+jobs:
+  archive:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+          - x86_64-pc-windows-gnu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install # from rust-toolchain.toml (version, components, targets)
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-${{ matrix.target }}
+          save-if: ${{ inputs.save-cache }}
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+          cache-key: ${{ matrix.target }}
+      - uses: cargo-bins/cargo-binstall@a29e25869a42756b3be062dc4dae3e4b01bb4f38 # v1.25.0
+      - run: cargo binstall -y --locked cargo-zigbuild@${{ env.ZIGBUILD_VERSION }}
+      - run: scripts/build-release.sh ${{ matrix.target }}
+      - name: Memory budget (32 MB RSS)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: scripts/rss.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            dist/paasers-*.tar.gz
+            dist/paasers-*.zip
+          if-no-files-found: error
+          retention-days: 7

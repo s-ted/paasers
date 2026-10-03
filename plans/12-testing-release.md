@@ -71,18 +71,23 @@ DECISIONS for the ACME test:
 * Success: ≤ 60 s, a `certs` row for `acme-test.localhost` exists, and a TLS handshake with SNI `acme-test.localhost` on `[::1]:5443` presents a certificate with `issuer != subject` (test client with a `ServerCertVerifier` that accepts everything and captures the chain; the verifier exists only in `tests/`).
 * Precondition: if `tokio::net::lookup_host("acme-test.localhost:80")` fails **or** if `PEBBLE_DIR` is not set, the test prints the reason and returns (neutral success). It is `#[ignore]` anyway.
 
-## 5. CI (`scripts/ci.sh`, completed)
+## 5. CI (`scripts/ci.sh` locally, `.github/workflows/` on GitHub)
 
-Steps, in order (failure ⇒ stop):
-1. `cargo fmt --check`
-2. `cargo clippy --all-targets -- -D warnings`
-3. `cargo clippy --all-targets --no-default-features -- -D warnings`
-4. check ≤ 250 lines/file (plans/00 §9)
-5. `cargo test` (full suite, excluding `#[ignore]`)
-6. `cargo test --no-default-features` (without passkey)
-7. `scripts/pebble.sh && PEBBLE_DIR=target/pebble cargo test --test acme -- --ignored` (separate job, tolerant of network outages)
-8. `cargo zigbuild --release --target x86_64-unknown-linux-musl` then `file target/x86_64-unknown-linux-musl/release/paasers | grep -q 'statically linked'`
-9. `scripts/rss.sh`
+`ci.yml` (pull requests and `main`; caches are only saved from `main`, which pull requests restore from):
+1. `lint`: `scripts/ci.sh` = `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, ≤ 250 lines/file (plans/00 §9)
+2. `test`: `cargo test --locked` on native `ubuntu-24.04`, `ubuntu-24.04-arm` and `windows-2025` runners
+3. `acme`: `scripts/pebble.sh && PEBBLE_DIR=target/pebble cargo test --test acme -- --ignored`
+4. `deny`: `cargo deny check` (`deny.toml`)
+5. `package`: `cargo publish --dry-run --locked` (the `include` list builds on its own)
+6. `build` (reusable `build.yml`): `scripts/build-release.sh <target>` for the 3 targets via cargo-zigbuild, static
+   check of the musl binaries, `scripts/rss.sh` on the amd64 binary
+7. `binstall-layout`: `scripts/check-binstall.sh` (archive names and paths match `[package.metadata.binstall]`)
+
+`release.yml` (tag `vX.Y.Z` equal to the Cargo.toml version): `build.yml`, `scripts/sign-release.sh` (minisign,
+checked against the pinned pubkey), `scripts/check-binstall.sh`, build provenance, GitHub release, `cargo publish`
+(trusted publishing), then `cargo binstall --only-signed` on the three native runners.
+
+Windows clippy locally: `cargo-zigbuild clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings`.
 
 `grep -rn "unwrap()\|expect(" src/ | grep -v "#\[cfg(test)\]"` is **not** needed: the `deny` lints guarantee it.
 

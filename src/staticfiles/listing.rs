@@ -1,6 +1,9 @@
 //! HTML directory listing: escaping, ordering and rendering.
 use super::path::encode_segment;
+use crate::config::StaticCfg;
 use std::fmt::Write;
+use std::io;
+use std::path::Path;
 use std::time::SystemTime;
 
 /// Hard cap on listed entries (memory bound).
@@ -51,6 +54,46 @@ pub fn sort(entries: &mut [Entry]) {
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
             .then_with(|| a.name.cmp(&b.name))
     });
+}
+
+/// Reads and sorts the entries of `dir`, honouring `hidden` and `follow-symlinks`. `true` = truncated.
+pub async fn read_entries(cfg: &StaticCfg, dir: &Path) -> io::Result<(Vec<Entry>, bool)> {
+    let mut rd = tokio::fs::read_dir(dir).await?;
+    let mut out = Vec::new();
+    let mut truncated = false;
+    while let Some(de) = rd.next_entry().await? {
+        let Ok(name) = de.file_name().into_string() else {
+            continue;
+        };
+        if name.starts_with('.') && !cfg.hidden {
+            continue;
+        }
+        if out.len() >= MAX_ENTRIES {
+            truncated = true;
+            break;
+        }
+        let Ok(ft) = de.file_type().await else { continue };
+        let md = if ft.is_symlink() {
+            if !cfg.follow_symlinks {
+                continue;
+            }
+            tokio::fs::metadata(de.path()).await
+        } else {
+            de.metadata().await
+        };
+        let Ok(md) = md else { continue };
+        if !(md.is_dir() || md.is_file()) {
+            continue;
+        }
+        out.push(Entry {
+            name,
+            is_dir: md.is_dir(),
+            size: md.len(),
+            modified: md.modified().ok(),
+        });
+    }
+    sort(&mut out);
+    Ok((out, truncated))
 }
 
 /// `display` is the decoded directory path shown to the user (starts and ends with `/`).
