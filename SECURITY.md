@@ -37,9 +37,10 @@ Out of scope: issues that require control of the configuration file, the host, o
 
 Release archives are signed with minisign. The public key is pinned in `Cargo.toml`
 (`[package.metadata.binstall.signing]`), and `cargo binstall --only-signed paasers` checks it automatically.
-By hand:
+By hand (the signature is published as `<archive>.sig`, hence `-x`; minisign would otherwise look for `.minisig`):
 
 ```bash
-minisign -Vm paasers-<version>-<target>.tar.gz -P RWSejPf058zYfUwKUqoKW+2SIIY7g4Ahz7Ku6o0pzoiscLGHyr1bxaD1
+a=paasers-<version>-<target>.tar.gz
+minisign -V -m "$a" -x "$a.sig" -P RWSejPf058zYfUwKUqoKW+2SIIY7g4Ahz7Ku6o0pzoiscLGHyr1bxaD1
 gh attestation verify paasers-<version>-<target>.tar.gz -R s-ted/paasers   # build provenance
 ```
