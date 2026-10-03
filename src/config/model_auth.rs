@@ -47,6 +47,8 @@ pub struct ApiKeysCfg {
 #[derive(Debug, Clone)]
 pub enum OpKind {
     Set(String),
+    /// Built-in defaults only (no KDL syntax): keeps a value chosen by the backend.
+    SetIfAbsent(String),
     Add(String),
     Remove,
     Replace(regex::Regex, String),
@@ -55,7 +57,9 @@ pub enum OpKind {
 impl PartialEq for OpKind {
     fn eq(&self, o: &Self) -> bool {
         match (self, o) {
-            (Self::Set(a), Self::Set(b)) | (Self::Add(a), Self::Add(b)) => a == b,
+            (Self::Set(a), Self::Set(b))
+            | (Self::SetIfAbsent(a), Self::SetIfAbsent(b))
+            | (Self::Add(a), Self::Add(b)) => a == b,
             (Self::Remove, Self::Remove) => true,
             (Self::Replace(r1, s1), Self::Replace(r2, s2)) => r1.as_str() == r2.as_str() && s1 == s2,
             _ => false,

@@ -90,12 +90,24 @@ async fn purge_by_tag_forces_a_miss() {
 }
 
 #[tokio::test]
-async fn route_without_cache_has_no_x_cache_header() {
+async fn route_with_cache_off_has_no_x_cache_header() {
     let (b, calls) = counting_backend().await;
-    let g = spawn_gateway(&kdl(b, "")).await;
+    let g = spawn_gateway(&kdl(b, "cache off")).await;
     let r = raw_request(g.http_addr(), &get("/a")).await.to_ascii_lowercase();
     assert!(!r.contains("x-cache"), "{r}");
     raw_request(g.http_addr(), &get("/a")).await;
     assert_eq!(calls.load(SeqCst), 2);
+    g.stop().await;
+}
+
+#[tokio::test]
+async fn cache_is_on_by_default_and_follows_the_backend() {
+    let (b, calls) = counting_backend().await;
+    let g = spawn_gateway(&kdl(b, "")).await;
+    let r1 = raw_request(g.http_addr(), &get("/a")).await.to_ascii_lowercase();
+    assert!(r1.contains("x-cache: miss"), "{r1}");
+    let r2 = raw_request(g.http_addr(), &get("/a")).await.to_ascii_lowercase();
+    assert!(r2.contains("x-cache: hit"), "{r2}");
+    assert_eq!(calls.load(SeqCst), 1);
     g.stop().await;
 }

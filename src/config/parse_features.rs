@@ -8,8 +8,16 @@ use http::HeaderName;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub fn parse_cache(n: &NodeCtx<'_>) -> Result<CacheCfg, ConfigError> {
-    n.check_args(0, 0)?;
+/// `cache off` disables it (None).
+pub fn parse_cache(n: &NodeCtx<'_>) -> Result<Option<CacheCfg>, ConfigError> {
+    n.check_args(0, 1)?;
+    if n.args().next().is_some() {
+        if n.arg_str(0)? != "off" {
+            return Err(n.err("cache accepts only the argument `off`"));
+        }
+        n.check_props(&[])?;
+        return Ok(None);
+    }
     n.check_props(&[
         "max-size",
         "stale-while-revalidate",
@@ -22,13 +30,13 @@ pub fn parse_cache(n: &NodeCtx<'_>) -> Result<CacheCfg, ConfigError> {
     if max_object_size > max_size {
         return Err(n.err("cache max-object-size must be <= max-size"));
     }
-    Ok(CacheCfg {
+    Ok(Some(CacheCfg {
         max_size,
         stale_while_revalidate: n.prop_dur("stale-while-revalidate")?.unwrap_or_default(),
         stale_if_error: n.prop_dur("stale-if-error")?.unwrap_or_default(),
         default_ttl: n.prop_dur("default-ttl")?.unwrap_or_default(),
         max_object_size,
-    })
+    }))
 }
 
 /// `compression off` disables it (None). Otherwise Some(cfg) with defaults for absent props.
@@ -81,7 +89,31 @@ pub fn parse_geoip(n: &NodeCtx<'_>) -> Result<GeoIpCfg, ConfigError> {
     })
 }
 
-pub fn parse_rate_limit(n: &NodeCtx<'_>) -> Result<RateLimitCfg, ConfigError> {
+/// All `rate-limit` nodes of a route. `rate-limit off` (alone) disables limiting. Without a global
+/// rule, the generous built-in one is added.
+pub fn parse_rate_limits(nodes: &[NodeCtx<'_>]) -> Result<Vec<RateLimitCfg>, ConfigError> {
+    let off = |n: &NodeCtx<'_>| n.args().next().is_some();
+    if let Some(o) = nodes.iter().find(|n| off(n)) {
+        if o.arg_str(0)? != "off" {
+            return Err(o.err("rate-limit accepts only the argument `off`"));
+        }
+        o.check_props(&[])?;
+        if nodes.len() > 1 {
+            return Err(o.err("`rate-limit off` cannot be combined with other rate-limit rules"));
+        }
+        return Ok(Vec::new());
+    }
+    let mut rules = nodes
+        .iter()
+        .map(parse_rate_limit)
+        .collect::<Result<Vec<_>, _>>()?;
+    if !rules.iter().any(|r| r.path.is_none()) {
+        rules.insert(0, super::defaults::rate_limit());
+    }
+    Ok(rules)
+}
+
+fn parse_rate_limit(n: &NodeCtx<'_>) -> Result<RateLimitCfg, ConfigError> {
     n.check_args(0, 0)?;
     n.check_props(&["rps", "burst", "path"])?;
     let rps: u32 = n
@@ -126,4 +158,50 @@ pub fn parse_api_keys(n: &NodeCtx<'_>) -> Result<ApiKeysCfg, ConfigError> {
         return Err(n.err("api-keys needs at least one key"));
     }
     Ok(ApiKeysCfg { header, keys })
+}
+
+/// `fallback off` disables the maintenance page (None).
+pub fn parse_fallback(n: &NodeCtx<'_>) -> Result<Option<FallbackCfg>, ConfigError> {
+    n.check_args(0, 1)?;
+    if n.args().next().is_some() {
+        if n.arg_str(0)? != "off" {
+            return Err(n.err("fallback accepts only the argument `off`"));
+        }
+        n.check_props(&[])?;
+        return Ok(None);
+    }
+    n.check_props(&["status", "show-incident-id", "title", "message", "on"])?;
+    let d = FallbackCfg::default();
+    let status: u16 = n.prop_num("status")?.unwrap_or(d.status);
+    if !(500..=599).contains(&status) {
+        return Err(n.err("fallback status must be in 500..=599"));
+    }
+    let on = match n.prop_str("on")? {
+        Some(s) => s
+            .split(',')
+            .map(|p| {
+                p.trim()
+                    .parse::<u16>()
+                    .map_err(|_| n.err(format!("invalid status `{p}` in `on`")))
+            })
+            .collect::<Result<_, _>>()?,
+        None => d.on,
+    };
+    Ok(Some(FallbackCfg {
+        status,
+        show_incident_id: n.prop_bool("show-incident-id")?.unwrap_or(true),
+        title: n.prop_str("title")?.map_or(d.title, str::to_string),
+        message: n.prop_str("message")?.map_or(d.message, str::to_string),
+        on,
+    }))
+}
+
+/// `retry off` disables the retry on another backend. Returns whether retry is enabled.
+pub fn parse_retry(n: &NodeCtx<'_>) -> Result<bool, ConfigError> {
+    n.check_args(1, 1)?;
+    n.check_props(&[])?;
+    match n.arg_str(0)? {
+        "off" => Ok(false),
+        _ => Err(n.err("retry accepts only the argument `off`")),
+    }
 }

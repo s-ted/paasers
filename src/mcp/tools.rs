@@ -25,7 +25,8 @@ fn features(r: &RouteRuntime) -> Vec<&'static str> {
         (c.jwt.is_some(), "jwt"),
         (c.api_keys.is_some(), "api-keys"),
         (c.transform.is_some(), "transform"),
-        (true, "fallback"),
+        (c.fallback.is_some(), "fallback"),
+        (c.retry, "retry"),
     ]
     .into_iter()
     .filter_map(|(on, n)| on.then_some(n))
@@ -164,7 +165,7 @@ mod tests {
     use crate::server::Shared;
 
     fn runtime() -> Runtime {
-        let src = "route \"a.com\" \"www.a.com\" {\n upstream \"10.0.0.1:80\" weight=9\n upstream \"10.0.0.2:80\"\n cache\n compression\n}\nroute \"b.com\" {\n upstream \"10.0.0.3:80\"\n}";
+        let src = "route \"a.com\" \"www.a.com\" {\n upstream \"10.0.0.1:80\" weight=9\n upstream \"10.0.0.2:80\"\n cache\n compression\n}\nroute \"b.com\" {\n upstream \"10.0.0.3:80\"\n cache off\n}";
         let cfg = Arc::new(parse_str(src, &|_| None).unwrap());
         crate::routing::build(&cfg, &Shared::new()).unwrap()
     }

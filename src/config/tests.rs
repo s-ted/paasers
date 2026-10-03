@@ -43,7 +43,9 @@ fn specs(file: &str) -> Config {
 #[test]
 fn empty_file_gives_defaults() {
     let c = parse("").unwrap();
-    assert!(c.routes.is_empty() && c.mcp.is_none());
+    assert!(c.routes.is_empty());
+    assert!(c.mcp.as_ref().is_some_and(|m| m.implicit && m.token.is_none()));
+    assert_eq!(c.gateway.trusted_proxies, defaults::trusted_proxies());
     assert_eq!(c.gateway.listen_http.to_string(), "[::]:80");
     assert_eq!(c.gateway.listen_https.unwrap().to_string(), "[::]:443");
     assert_eq!(c.gateway.storage_path.to_str(), Some("/var/lib/gateway/certs.db"));
@@ -125,8 +127,12 @@ fn route_defaults() {
     assert_eq!(r.upstreams[0].weight, 1);
     assert_eq!(r.health, HealthCfg::default());
     assert_eq!(r.request_timeout, Duration::from_secs(60));
-    assert_eq!(r.fallback, FallbackCfg::default());
-    assert!(r.cache.is_none() && r.compression == Some(CompressionCfg::default()) && r.gatekeeper.is_none());
+    assert_eq!(r.fallback, Some(FallbackCfg::default()));
+    assert!(r.retry);
+    assert_eq!(r.cache, Some(CacheCfg::default()));
+    assert!(r.compression == Some(CompressionCfg::default()) && r.gatekeeper.is_none());
+    assert_eq!(r.rate_limits, vec![defaults::rate_limit()]);
+    assert_eq!(r.transform, Some(defaults::security_transform()));
 }
 
 #[test]
@@ -145,8 +151,9 @@ fn route_simple_children_all_properties() {
     assert!(!r.health.enabled);
     assert_eq!((r.health.unhealthy_after, r.health.healthy_after), (3, 4));
     assert_eq!(r.request_timeout, Duration::from_secs(5));
-    assert_eq!((r.fallback.status, r.fallback.on.clone()), (502, vec![503]));
-    assert!(!r.fallback.show_incident_id);
+    let f = r.fallback.clone().unwrap();
+    assert_eq!((f.status, f.on.clone()), (502, vec![503]));
+    assert!(!f.show_incident_id);
 }
 
 fn tls_of(src: &str) -> TlsCfg {
@@ -299,7 +306,7 @@ fn feature_defaults() {
     assert_eq!(k.header, "X-Api-Key");
     assert_eq!(k.keys[0].hash_hex.len(), 64);
     assert!(k.keys[0].hash_hex.chars().all(|c| !c.is_ascii_uppercase()));
-    assert_eq!(r.transform.unwrap(), TransformCfg::default());
+    assert_eq!(r.transform.unwrap(), defaults::security_transform());
 }
 
 #[test]
@@ -407,8 +414,9 @@ fn transform_all_ops() {
     .remove(0)
     .transform
     .unwrap();
+    let builtin = defaults::security_transform().response.len();
     assert_eq!(t.request.len(), 4);
-    assert_eq!(t.response.len(), 1);
+    assert_eq!(t.response.len(), builtin + 1);
     assert_eq!(t.status, vec![(404, 410)]);
 }
 
@@ -715,4 +723,160 @@ fn route_without_backend_serves_current_directory() {
 fn implicit_static_route_rejects_proxy_only_nodes() {
     let e = err(&static_route("cache max-size=\"1MB\""));
     assert!(e.contains("does not apply to a static route"), "{e}");
+}
+
+#[test]
+fn mcp_off_and_explicit() {
+    assert!(parse("mcp-server off").unwrap().mcp.is_none());
+    assert!(err("mcp-server on").contains("only the argument"));
+    let m = parse("mcp-server { listen \"127.0.0.1:9191\" }")
+        .unwrap()
+        .mcp
+        .unwrap();
+    assert!(!m.implicit);
+}
+
+#[test]
+fn cache_off_and_static_has_no_default_cache() {
+    assert!(parse(&route("cache off")).unwrap().routes[0].cache.is_none());
+    assert!(err(&route("cache nope")).contains("only the argument"));
+    let d = tmp_dir();
+    let r = parse(&static_route(&format!("static \"{}\"", d.path().display())))
+        .unwrap()
+        .routes
+        .remove(0);
+    assert!(r.cache.is_none());
+}
+
+#[test]
+fn rate_limit_default_off_and_override() {
+    let r = &parse(&route("")).unwrap().routes[0];
+    assert_eq!(
+        r.rate_limits,
+        vec![RateLimitCfg {
+            rps: 100,
+            burst: 200,
+            path: None
+        }]
+    );
+    assert!(
+        parse(&route("rate-limit off")).unwrap().routes[0]
+            .rate_limits
+            .is_empty()
+    );
+    assert!(err(&route("rate-limit off\n rate-limit rps=1")).contains("cannot be combined"));
+    let own = &parse(&route("rate-limit rps=5")).unwrap().routes[0];
+    assert_eq!(own.rate_limits.len(), 1);
+    assert_eq!(own.rate_limits[0].rps, 5);
+    // A path rule alone keeps the built-in global rule.
+    let p = &parse(&route("rate-limit path=\"/login\" rps=1")).unwrap().routes[0];
+    assert_eq!(p.rate_limits.len(), 2);
+    assert!(p.rate_limits[0].path.is_none() && p.rate_limits[0].rps == 100);
+}
+
+#[test]
+fn security_transform_default_and_off() {
+    let r = &parse(&route("")).unwrap().routes[0];
+    let t = r.transform.as_ref().unwrap();
+    assert!(t.response.iter().any(|o| o.header == "x-content-type-options"));
+    // No HSTS by default, even with TLS.
+    let tls = parse(&format!("{GW_EMAIL}{}", route("tls"))).unwrap();
+    assert!(
+        !tls.routes[0]
+            .transform
+            .as_ref()
+            .unwrap()
+            .response
+            .iter()
+            .any(|o| o.header == "strict-transport-security")
+    );
+    assert!(
+        parse(&route("transform off")).unwrap().routes[0]
+            .transform
+            .is_none()
+    );
+    // User operations run after the defaults.
+    let u = &parse(&route(
+        "transform { response { set \"X-Content-Type-Options\" \"x\" } }",
+    ))
+    .unwrap()
+    .routes[0];
+    assert_eq!(
+        u.transform.as_ref().unwrap().response.last().unwrap().header,
+        "x-content-type-options"
+    );
+}
+
+#[test]
+fn trusted_proxies_default_private_and_empty_override() {
+    let d = parse("").unwrap().gateway.trusted_proxies;
+    assert!(d.iter().any(|n| n.to_string() == "10.0.0.0/8"));
+    assert!(
+        !d.iter()
+            .any(|n| n.contains(&"127.0.0.1".parse::<std::net::IpAddr>().unwrap()))
+    );
+    assert!(
+        parse("gateway { trusted-proxies }")
+            .unwrap()
+            .gateway
+            .trusted_proxies
+            .is_empty()
+    );
+}
+
+#[test]
+fn fallback_retry_flight_recorder_off() {
+    assert!(
+        parse(&route("fallback off")).unwrap().routes[0]
+            .fallback
+            .is_none()
+    );
+    assert!(err(&route("fallback on")).contains("only the argument"));
+    assert!(!parse(&route("retry off")).unwrap().routes[0].retry);
+    assert!(err(&route("retry on")).contains("only the argument"));
+    assert_eq!(
+        parse("gateway { flight-recorder off }")
+            .unwrap()
+            .gateway
+            .flight_recorder_capacity,
+        0
+    );
+    assert!(err("gateway { flight-recorder nope }").contains("only the argument"));
+    assert_eq!(
+        parse("gateway { flight-recorder capacity=7 }")
+            .unwrap()
+            .gateway
+            .flight_recorder_capacity,
+        7
+    );
+}
+
+/// Every feature that is on without configuration must have an opt-out. Keep in sync with
+/// docs/features/defaults.md.
+#[test]
+fn every_default_feature_can_be_disabled() {
+    let d = parse(&route("")).unwrap();
+    let r = &d.routes[0];
+    assert!(d.mcp.is_some() && r.cache.is_some() && r.compression.is_some() && !r.rate_limits.is_empty());
+    assert!(r.transform.is_some() && r.fallback.is_some() && r.retry && r.health.enabled);
+    assert!(r.redirect_https || r.tls.is_none());
+    assert!(!d.gateway.trusted_proxies.is_empty() && d.gateway.flight_recorder_capacity > 0);
+    let off = parse(&format!(
+        "mcp-server off\ngateway {{ trusted-proxies\n flight-recorder off }}\n{}",
+        route("cache off\n compression off\n rate-limit off\n transform off\n fallback off\n retry off\n health-check enabled=#false")
+    ))
+    .unwrap();
+    let r = &off.routes[0];
+    assert!(off.mcp.is_none() && r.cache.is_none() && r.compression.is_none() && r.rate_limits.is_empty());
+    assert!(r.transform.is_none() && r.fallback.is_none() && !r.retry && !r.health.enabled);
+    assert!(off.gateway.trusted_proxies.is_empty() && off.gateway.flight_recorder_capacity == 0);
+    let tls = parse(&format!("{GW_EMAIL}{}", route("tls\n redirect-https #false"))).unwrap();
+    assert!(!tls.routes[0].redirect_https);
+    let d = tmp_dir();
+    let s = parse(&static_route(&format!(
+        "static \"{}\" listing=#false",
+        d.path().display()
+    )))
+    .unwrap();
+    assert!(!s.routes[0].static_files.as_ref().unwrap().listing);
 }

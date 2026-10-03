@@ -62,9 +62,17 @@ fn parse_ops(n: &NodeCtx<'_>, response: bool) -> Result<ParsedOps, ConfigError> 
     Ok((ops, status))
 }
 
-pub fn parse_transform(n: &NodeCtx<'_>) -> Result<TransformCfg, ConfigError> {
-    n.check_args(0, 0)?;
+/// `transform off` disables every transform, including the built-in security headers (None).
+pub fn parse_transform(n: &NodeCtx<'_>) -> Result<Option<TransformCfg>, ConfigError> {
+    n.check_args(0, 1)?;
     n.check_props(&[])?;
+    if n.args().next().is_some() {
+        if n.arg_str(0)? != "off" {
+            return Err(n.err("transform accepts only the argument `off`"));
+        }
+        n.scope().check_only(&[])?;
+        return Ok(None);
+    }
     let s = n.scope();
     s.check_only(&["request", "response"])?;
     let mut t = TransformCfg::default();
@@ -74,5 +82,5 @@ pub fn parse_transform(n: &NodeCtx<'_>) -> Result<TransformCfg, ConfigError> {
     if let Some(r) = s.single("response")? {
         (t.response, t.status) = parse_ops(&r, true)?;
     }
-    Ok(t)
+    Ok(Some(t))
 }

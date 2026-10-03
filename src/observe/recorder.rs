@@ -105,7 +105,7 @@ impl FlightRecorder {
     pub fn new(capacity: usize) -> Self {
         Self {
             inner: Mutex::new(VecDeque::with_capacity(capacity.min(1024))),
-            capacity: capacity.max(1),
+            capacity,
             total: AtomicU64::new(0),
         }
     }
@@ -115,6 +115,10 @@ impl FlightRecorder {
     }
 
     pub fn record(&self, i: Incident) {
+        // Capacity 0 is `flight-recorder off`.
+        if self.capacity == 0 {
+            return;
+        }
         let mut q = self.lock();
         q.push_back(Arc::new(i));
         while q.len() > self.capacity {

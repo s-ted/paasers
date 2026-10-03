@@ -44,6 +44,7 @@ pub struct GatewayCfg {
     pub default_email: Option<String>,
     pub certs_dir: Option<PathBuf>,
     pub trusted_proxies: Vec<IpNet>,
+    /// 0 with `flight-recorder off`.
     pub flight_recorder_capacity: usize,
     pub log: LogCfg,
     pub limits: Limits,
@@ -56,6 +57,8 @@ pub struct GatewayCfg {
 pub struct McpCfg {
     pub listen: SocketAddr,
     pub token: Option<String>,
+    /// Built-in default (no `mcp-server` node): a bind failure is only a warning.
+    pub implicit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +81,10 @@ pub struct RouteCfg {
     pub jwt: Option<JwtCfg>,
     pub api_keys: Option<ApiKeysCfg>,
     pub transform: Option<TransformCfg>,
-    pub fallback: FallbackCfg,
+    /// None with `fallback off`: backend responses and failures are left untouched.
+    pub fallback: Option<FallbackCfg>,
+    /// Retry an idempotent request once on another backend after a connection failure.
+    pub retry: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

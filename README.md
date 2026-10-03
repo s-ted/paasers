@@ -10,7 +10,7 @@
 * **Safe deployments**: weighted traffic split (canary, blue/green), active health checks, automatic retry on another backend, draining with `weight=0`.
 * **Incidents solved in one sentence**: when a backend goes down, users see a maintenance page with an **Incident ID**. An AI agent passes it to the built-in MCP server and gets the root cause.
 * **Protected previews**: shared password, TOTP and passkeys, with brute force protection.
-* **Built-in security**: GeoIP, rate limiting, JWT, API keys, trusted identity headers are always sanitized.
+* **Built-in security**: a generous per-IP rate limit, security response headers and a local MCP server are on by default (each has an `off` switch, see [Defaults](docs/features/defaults.md)). GeoIP, JWT and API keys are opt-in, trusted identity headers are always sanitized.
 * **Static files too**: a route can serve a directory (listing, index file, single page app mode, Range) behind the same TLS, login and rate limit as a proxied route. With no configuration at all, it serves the current directory.
 * **Fast**: RFC 9111 cache with stale-while-revalidate and stale-if-error, zstd/brotli/gzip compression on by default.
 * **Easy to operate**: hot reload (`SIGHUP` or file change), graceful shutdown, an invalid config never replaces a good one, errors report line and column.
@@ -79,6 +79,7 @@ Each page documents the defaults and gives configuration examples.
 
 | Feature | In short |
 |---|---|
+| [Defaults](docs/features/defaults.md) | what is on by default, values and how to turn it off |
 | [Global settings](docs/features/gateway.md) | listeners, logs, limits, trusted proxies |
 | [Routing and load balancing](docs/features/routing.md) | hosts, wildcards, weights, timeouts, WebSocket |
 | [Static files](docs/features/static.md) | serve a directory: listing, index, SPA mode, Range |

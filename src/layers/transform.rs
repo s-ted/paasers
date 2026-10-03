@@ -97,6 +97,7 @@ impl Ctx {
 
 enum Op {
     Set(HeaderName, Template),
+    SetIfAbsent(HeaderName, Template),
     Add(HeaderName, Template),
     Remove(HeaderName),
     Replace(HeaderName, regex::Regex, String),
@@ -108,6 +109,7 @@ fn compile(ops: &[HeaderOpCfg]) -> Vec<Op> {
             let name = HeaderName::from_bytes(o.header.as_bytes()).ok()?;
             Some(match &o.op {
                 OpKind::Set(v) => Op::Set(name, Template::parse(v)),
+                OpKind::SetIfAbsent(v) => Op::SetIfAbsent(name, Template::parse(v)),
                 OpKind::Add(v) => Op::Add(name, Template::parse(v)),
                 OpKind::Remove => Op::Remove(name),
                 OpKind::Replace(re, r) => Op::Replace(name, re.clone(), r.clone()),
@@ -127,6 +129,13 @@ fn apply(ops: &[Op], h: &mut HeaderMap, ctx: &Ctx) {
                     tracing::debug!(header = %n, "transform: rendered value is not a valid header, skipped")
                 }
             },
+            Op::SetIfAbsent(n, t) => {
+                if !h.contains_key(n)
+                    && let Ok(v) = HeaderValue::from_str(&t.render(ctx))
+                {
+                    h.insert(n.clone(), v);
+                }
+            }
             Op::Add(n, t) => match HeaderValue::from_str(&t.render(ctx)) {
                 Ok(v) => {
                     h.append(n.clone(), v);

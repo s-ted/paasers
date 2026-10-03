@@ -73,7 +73,8 @@ fn default_route(cfg: &Arc<Config>, shared: &Shared) -> Result<Arc<RouteRuntime>
         jwt: None,
         api_keys: None,
         transform: None,
-        fallback: crate::config::FallbackCfg::default(),
+        fallback: None,
+        retry: false,
     };
     let balancer = Arc::new(Balancer::new(&[], &shared.health));
     let service = stack::build_stack(

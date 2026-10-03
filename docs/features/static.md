@@ -96,5 +96,5 @@ route "assets.example.com" {
 ## Rules
 
 * `static` and `upstream` are mutually exclusive. A route with neither serves the current directory.
-* `health-check`, `timeouts`, `cache` and `fallback` do not apply to a static route and are rejected.
+* `health-check`, `timeouts`, `cache`, `fallback` and `retry` do not apply to a static route and are rejected.
 * `static` takes exactly one argument and cannot be repeated.

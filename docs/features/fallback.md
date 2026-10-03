@@ -4,7 +4,7 @@ When the backend fails, the user sees a clean page with an **Incident ID** (the 
 
 ## Defaults
 
-Active with nothing written.
+Active with nothing written. `fallback off` disables the page: proxy failures then return a plain 502 and backend responses pass through untouched.
 
 | Property | Default |
 |---|---|

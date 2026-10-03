@@ -4,7 +4,7 @@ A built-in MCP server (Streamable HTTP) lets an AI agent investigate from an **I
 
 ## Defaults
 
-Disabled without the `mcp-server` block.
+**Enabled by default**, local only: without an `mcp-server` block it listens on `127.0.0.1:9090` with no token, so only processes on the same machine can reach it. If that port is already taken, the gateway starts anyway and logs a warning. Write `mcp-server off` to disable it. Any local user can call `purge_cache`, so set a `token` on a shared machine.
 
 | Option | Default |
 |---|---|
@@ -29,6 +29,12 @@ Incident kinds: `upstream_connect`, `upstream_timeout`, `no_healthy_upstream`, `
 The flight recorder is an in-memory ring buffer (`gateway { flight-recorder capacity=500 }`).
 
 ## Examples
+
+Disable:
+
+```kdl
+mcp-server off
+```
 
 Local only:
 
