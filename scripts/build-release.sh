@@ -40,4 +40,5 @@ for t in "${TARGETS[@]}"; do
   rm -rf "$stage"
   echo "    $(du -h "$bin" | cut -f1) binary -> $(ls dist/"$name".*)"
 done
-(cd dist && sha256sum paasers-*.tar.gz paasers-*.zip 2>/dev/null > SHA256SUMS)
+# nullglob: a single-target build (CI matrix) has no .zip or no .tar.gz, which must not fail the script.
+(cd dist && shopt -s nullglob && sha256sum paasers-*.tar.gz paasers-*.zip > SHA256SUMS)
