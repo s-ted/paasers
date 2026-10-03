@@ -17,6 +17,7 @@ Rules:
 * Hosts are normalized (lowercase, trailing dot removed). `*.example.com` matches exactly one label.
 * Upstreams are literal `ip:port` addresses, plain HTTP. A non-private IP logs a warning.
 * No duplicate upstream, and the sum of weights must be greater than 0.
+* `retry off` in a route disables the retry below.
 * On a connection failure, a `GET`/`HEAD`/`OPTIONS`/`TRACE` request without a body is retried once on another backend. Other methods are never retried.
 * `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` and `X-Forwarded-Host` are set by the gateway.
 * WebSocket is supported (HTTP/1.1).

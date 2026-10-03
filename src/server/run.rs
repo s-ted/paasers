@@ -141,9 +141,17 @@ pub async fn run_shared(
             tunnels: shared.tunnels.clone(),
             certs: certs.clone(),
         });
-        let (addr, task) = crate::mcp::serve(m, state, shutdown.clone()).await?;
-        mcp_addr = Some(addr);
-        mcp_task = Some(task);
+        match crate::mcp::serve(m, state, shutdown.clone()).await {
+            Ok((addr, task)) => {
+                mcp_addr = Some(addr);
+                mcp_task = Some(task);
+            }
+            // The built-in server must never prevent the gateway from starting.
+            Err(e) if m.implicit => {
+                tracing::warn!(listen = %m.listen, error = %e, "built-in mcp-server disabled (use `mcp-server off` to silence)");
+            }
+            Err(e) => return Err(e.into()),
+        }
     }
     let _ = ready.send(BoundAddrs {
         http: http_addr,

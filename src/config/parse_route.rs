@@ -2,7 +2,7 @@
 use super::error::ConfigError;
 use super::kdl_ext::{Env, NodeCtx};
 use super::model::*;
-use super::{parse_features as feat, parse_gate, units};
+use super::{defaults, parse_features as feat, parse_gate, units};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,6 +23,7 @@ const ROUTE_NODES: &[&str] = &[
     "api-keys",
     "transform",
     "redirect-https",
+    "retry",
 ];
 
 pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<RouteCfg, ConfigError> {
@@ -60,7 +61,7 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
         other => other,
     };
     if static_files.is_some()
-        && let Some((name, bad)) = ["health-check", "timeouts", "cache", "fallback"]
+        && let Some((name, bad)) = ["health-check", "timeouts", "cache", "fallback", "retry"]
             .into_iter()
             .find_map(|name| scope.single(name).ok().flatten().map(|b| (name, b)))
     {
@@ -90,6 +91,17 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
         }
         None => Duration::from_secs(60),
     };
+    let cache = match scope.single("cache")? {
+        Some(c) => feat::parse_cache(&c)?,
+        // On by default for proxied routes: the backend decides through `Cache-Control`.
+        None => static_files.is_none().then(CacheCfg::default),
+    };
+    let transform = match scope.single("transform")? {
+        Some(t) => super::parse_transform::parse_transform(&t)?
+            .map(|u| defaults::merge_transform(defaults::security_transform(), u)),
+        None => Some(defaults::security_transform()),
+    };
+    let rate_limits = feat::parse_rate_limits(&scope.all("rate-limit"))?;
     Ok(RouteCfg {
         id,
         hosts,
@@ -102,10 +114,7 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
             .transpose()?
             .unwrap_or_default(),
         request_timeout,
-        cache: scope
-            .single("cache")?
-            .map(|c| feat::parse_cache(&c))
-            .transpose()?,
+        cache,
         // Enabled by default (zstd, brotli, gzip); `compression off` disables it.
         compression: match scope.single("compression")? {
             Some(c) => feat::parse_compression(&c)?,
@@ -115,11 +124,7 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
             .single("geoip")?
             .map(|c| feat::parse_geoip(&c))
             .transpose()?,
-        rate_limits: scope
-            .all("rate-limit")
-            .iter()
-            .map(feat::parse_rate_limit)
-            .collect::<Result<_, _>>()?,
+        rate_limits,
         gatekeeper: scope
             .single("gatekeeper")?
             .map(|g| parse_gate::parse_gatekeeper(&g, tls.is_some(), env))
@@ -132,15 +137,15 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
             .single("api-keys")?
             .map(|a| feat::parse_api_keys(&a))
             .transpose()?,
-        transform: scope
-            .single("transform")?
-            .map(|t| super::parse_transform::parse_transform(&t))
-            .transpose()?,
-        fallback: scope
-            .single("fallback")?
-            .map(|f| parse_fallback(&f))
-            .transpose()?
-            .unwrap_or_default(),
+        transform,
+        fallback: match scope.single("fallback")? {
+            Some(f) => feat::parse_fallback(&f)?,
+            None => Some(FallbackCfg::default()),
+        },
+        retry: match scope.single("retry")? {
+            Some(r) => feat::parse_retry(&r)?,
+            None => true,
+        },
         tls,
     })
 }
@@ -226,33 +231,5 @@ fn parse_health(n: &NodeCtx<'_>) -> Result<HealthCfg, ConfigError> {
         healthy_after: after("healthy-after", d.healthy_after)?,
         mode,
         enabled: n.prop_bool("enabled")?.unwrap_or(true),
-    })
-}
-
-fn parse_fallback(n: &NodeCtx<'_>) -> Result<FallbackCfg, ConfigError> {
-    n.check_args(0, 0)?;
-    n.check_props(&["status", "show-incident-id", "title", "message", "on"])?;
-    let d = FallbackCfg::default();
-    let status: u16 = n.prop_num("status")?.unwrap_or(d.status);
-    if !(500..=599).contains(&status) {
-        return Err(n.err("fallback status must be in 500..=599"));
-    }
-    let on = match n.prop_str("on")? {
-        Some(s) => s
-            .split(',')
-            .map(|p| {
-                p.trim()
-                    .parse::<u16>()
-                    .map_err(|_| n.err(format!("invalid status `{p}` in `on`")))
-            })
-            .collect::<Result<_, _>>()?,
-        None => d.on,
-    };
-    Ok(FallbackCfg {
-        status,
-        show_incident_id: n.prop_bool("show-incident-id")?.unwrap_or(true),
-        title: n.prop_str("title")?.map_or(d.title, str::to_string),
-        message: n.prop_str("message")?.map_or(d.message, str::to_string),
-        on,
     })
 }

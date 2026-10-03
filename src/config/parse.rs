@@ -32,7 +32,7 @@ pub fn default_gateway() -> GatewayCfg {
         acme_ca_root: None,
         default_email: None,
         certs_dir: None,
-        trusted_proxies: Vec::new(),
+        trusted_proxies: super::defaults::trusted_proxies(),
         flight_recorder_capacity: 500,
         log: LogCfg {
             json: false,
@@ -107,12 +107,22 @@ pub fn parse_gateway(n: &NodeCtx<'_>) -> Result<GatewayCfg, ConfigError> {
             .collect::<Result<_, _>>()?;
     }
     if let Some(c) = scope.single("flight-recorder")? {
-        c.check_props(&["capacity"])?;
-        let cap: u32 = c.prop_num("capacity")?.unwrap_or(500);
-        if !(1..=100_000).contains(&cap) {
-            return Err(c.err("flight-recorder capacity must be in 1..=100000"));
+        c.check_args(0, 1)?;
+        if c.args().next().is_some() {
+            // `flight-recorder off`: incidents are not kept (the MCP server then has nothing to show).
+            if c.arg_str(0)? != "off" {
+                return Err(c.err("flight-recorder accepts only the argument `off`"));
+            }
+            c.check_props(&[])?;
+            g.flight_recorder_capacity = 0;
+        } else {
+            c.check_props(&["capacity"])?;
+            let cap: u32 = c.prop_num("capacity")?.unwrap_or(500);
+            if !(1..=100_000).contains(&cap) {
+                return Err(c.err("flight-recorder capacity must be in 1..=100000"));
+            }
+            g.flight_recorder_capacity = cap as usize;
         }
-        g.flight_recorder_capacity = cap as usize;
     }
     if let Some(c) = scope.single("log")? {
         c.check_props(&["format", "level"])?;
@@ -164,9 +174,17 @@ pub fn parse_gateway(n: &NodeCtx<'_>) -> Result<GatewayCfg, ConfigError> {
     Ok(g)
 }
 
-pub fn parse_mcp(n: &NodeCtx<'_>, env: Env<'_>) -> Result<McpCfg, ConfigError> {
-    n.check_args(0, 0)?;
+/// `mcp-server off` disables the built-in server (None).
+pub fn parse_mcp(n: &NodeCtx<'_>, env: Env<'_>) -> Result<Option<McpCfg>, ConfigError> {
+    n.check_args(0, 1)?;
     n.check_props(&[])?;
+    if n.args().next().is_some() {
+        if n.arg_str(0)? != "off" {
+            return Err(n.err("mcp-server accepts only the argument `off`"));
+        }
+        n.scope().check_only(&[])?;
+        return Ok(None);
+    }
     let scope = n.scope();
     scope.check_only(&["listen", "token", "token-env"])?;
     let listen = match scope.single("listen")? {
@@ -192,5 +210,9 @@ pub fn parse_mcp(n: &NodeCtx<'_>, env: Env<'_>) -> Result<McpCfg, ConfigError> {
         }
         _ => {}
     }
-    Ok(McpCfg { listen, token })
+    Ok(Some(McpCfg {
+        listen,
+        token,
+        implicit: false,
+    }))
 }

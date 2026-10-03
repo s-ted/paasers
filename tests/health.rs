@@ -26,7 +26,7 @@ async fn weighted_90_10_over_http() {
         addrs.push(a);
     }
     let src = format!(
-        "gateway {{\n listen \"127.0.0.1:0\"\n}}\nroute \"lb.test\" {{\n upstream \"{}\" weight=90\n upstream \"{}\" weight=10\n health-check enabled=#false\n}}\n",
+        "gateway {{\n listen \"127.0.0.1:0\"\n}}\nroute \"lb.test\" {{\n upstream \"{}\" weight=90\n upstream \"{}\" weight=10\n health-check enabled=#false\n rate-limit off\n}}\n",
         addrs[0], addrs[1]
     );
     let g = spawn_gateway(&src).await;
@@ -64,7 +64,7 @@ async fn drained_upstream_with_weight_zero_gets_no_traffic() {
     let (live, j2) = spawn_echo_backend().await;
     std::mem::forget(j2);
     let src = format!(
-        "gateway {{\n listen \"127.0.0.1:0\"\n}}\nroute \"lb.test\" {{\n upstream \"{drained}\" weight=0\n upstream \"{live}\"\n health-check enabled=#false\n}}\n"
+        "gateway {{\n listen \"127.0.0.1:0\"\n}}\nroute \"lb.test\" {{\n upstream \"{drained}\" weight=0\n upstream \"{live}\"\n health-check enabled=#false\n rate-limit off\n}}\n"
     );
     let g = spawn_gateway(&src).await;
     for _ in 0..50 {

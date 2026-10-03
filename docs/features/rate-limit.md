@@ -4,7 +4,7 @@ Per client IP limiting (token bucket). Several rules are possible: one global ru
 
 ## Defaults
 
-Inactive without a `rate-limit` node.
+A generous global rule is **on by default** on every route: `rps=100 burst=200` per client IP. It stops abuse, not normal traffic. A `rate-limit` node without `path` replaces it, a rule with a `path` is added on top of it, and `rate-limit off` (alone) removes limiting. Behind a load balancer outside the private ranges, set `trusted-proxies`, otherwise all clients share one IP.
 
 | Property | Default |
 |---|---|
@@ -19,6 +19,12 @@ Inactive without a `rate-limit` node.
 * Behind a proxy, set `trusted-proxies`, otherwise all requests appear to come from the same peer.
 
 ## Examples
+
+Disable:
+
+```kdl
+rate-limit off
+```
 
 General limit:
 

@@ -4,7 +4,7 @@ Modifies request and response headers and remaps status codes. Bodies are never 
 
 ## Defaults
 
-No transform without the node. An empty `transform` node is valid.
+Built-in security headers are **on by default** on every route: `X-Content-Type-Options: nosniff` (only if the backend did not set it), and removal of `Server` and `X-Powered-By`. `Strict-Transport-Security` is **not** added by default (hard to undo in a browser), see the example below to opt in. Your own operations run after these, so they can override or remove them. `transform off` disables everything, including the built-in headers. An empty `transform` node keeps only the built-ins.
 
 Operations inside `request { }` and `response { }`:
 
@@ -22,6 +22,12 @@ Operations inside `request { }` and `response { }`:
 
 ## Examples
 
+Disable everything, built-in headers included:
+
+```kdl
+transform off
+```
+
 Identify the gateway and propagate the trace id to the backend:
 
 ```kdl
@@ -33,7 +39,7 @@ transform {
 }
 ```
 
-Security headers on every response, hide the server banner:
+Opt in to HSTS (only once HTTPS works for good on this host and its subdomains). `nosniff` and the banner removal already happen by default:
 
 ```kdl
 transform {

@@ -12,8 +12,8 @@ A single optional block that configures the whole process. Every child node is a
 | `acme-ca-root` | none (private ACME CA, tests) |
 | `default-email` | none |
 | `certs-dir` | none |
-| `trusted-proxies` | none |
-| `flight-recorder capacity=` | 500 (1 to 100000) |
+| `trusted-proxies` | private ranges: `10.0.0.0/8` `172.16.0.0/12` `192.168.0.0/16` `fc00::/7` (loopback excluded). Write `trusted-proxies` with no argument to trust nobody. |
+| `flight-recorder capacity=` | 500 (1 to 100000), `flight-recorder off` keeps nothing |
 | `log format= level=` | `text`, `info` (`RUST_LOG` wins) |
 | `limits` | `max-connections=10000`, `max-body=100MiB`, `header-read-timeout=30s`, `max-headers-size=64KiB` |
 | `worker-threads` | `min(cpus, 4)` |

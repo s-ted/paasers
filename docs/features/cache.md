@@ -4,7 +4,7 @@ Shared in-memory cache implementing a subset of RFC 9111, placed in front of the
 
 ## Defaults
 
-The cache is **disabled** while the `cache` node is absent. Once present:
+The cache is **enabled by default** on proxied routes (not on static routes), in "the backend decides" mode: `default-ttl` is `0s`, so only responses carrying explicit freshness (`Cache-Control: max-age`, `s-maxage`, `Expires`) are stored. Memory is bounded by `max-size`. Write `cache off` to disable it on a route. A `cache` node sets the properties below:
 
 | Property | Default | Constraint |
 |---|---|---|
@@ -26,6 +26,12 @@ Storage rules:
 * Every response carries `X-Cache: HIT`, `MISS` or `STALE`.
 
 ## Examples
+
+Disable on one route:
+
+```kdl
+cache off
+```
 
 Minimal cache, the backend drives it with `Cache-Control`:
 

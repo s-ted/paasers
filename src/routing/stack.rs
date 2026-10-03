@@ -38,8 +38,12 @@ fn proxied(route: &RouteCfg, balancer: Arc<Balancer>, shared: &Shared, trusted: 
         route.request_timeout,
         trusted,
         shared.tunnels.clone(),
+        route.retry,
     ));
-    let svc = RouteSvc::new(FallbackLayer::new(route.fallback.clone()).layer(svc));
+    let svc = match &route.fallback {
+        Some(f) => RouteSvc::new(FallbackLayer::new(f.clone()).layer(svc)),
+        None => svc,
+    };
     match &route.cache {
         Some(c) => {
             let cache = shared.caches.get_or_create(&route.id, c, &route.upstreams);

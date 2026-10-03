@@ -1,4 +1,5 @@
 //! KDL configuration: parsing into a validated `Config`.
+pub mod defaults;
 pub mod error;
 pub mod kdl_ext;
 pub mod model;
@@ -33,10 +34,11 @@ pub fn parse_str(src: &str, env: Env<'_>) -> Result<Config, ConfigError> {
         Some(g) => parse::parse_gateway(&g)?,
         None => parse::default_gateway(),
     };
-    let mcp = scope
-        .single("mcp-server")?
-        .map(|m| parse::parse_mcp(&m, env))
-        .transpose()?;
+    // On by default (local only, no token). `mcp-server off` disables it.
+    let mcp = match scope.single("mcp-server")? {
+        Some(m) => parse::parse_mcp(&m, env)?,
+        None => Some(defaults::mcp()),
+    };
     let routes = scope
         .all("route")
         .iter()

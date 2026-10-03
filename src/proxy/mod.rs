@@ -65,6 +65,7 @@ pub struct ProxyService {
     request_timeout: Duration,
     trusted: Arc<Vec<IpNet>>,
     tunnels: Arc<AtomicUsize>,
+    retry: bool,
 }
 
 impl ProxyService {
@@ -74,6 +75,7 @@ impl ProxyService {
         request_timeout: Duration,
         trusted: Arc<Vec<IpNet>>,
         tunnels: Arc<AtomicUsize>,
+        retry: bool,
     ) -> Self {
         Self {
             balancer,
@@ -81,6 +83,7 @@ impl ProxyService {
             request_timeout,
             trusted,
             tunnels,
+            retry,
         }
     }
 
@@ -139,7 +142,8 @@ impl ProxyService {
         };
         let peer_ip = parts.extensions.get::<PeerIp>().map_or(client_ip.0, |p| p.0);
         let scheme = parts.extensions.get::<Scheme>().map_or("http", |s| s.0);
-        let retryable = !upgrade
+        let retryable = self.retry
+            && !upgrade
             && matches!(
                 parts.method,
                 Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE

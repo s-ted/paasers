@@ -154,6 +154,7 @@ pub fn validate(cfg: &Config) -> Result<(), ConfigError> {
         return sem("listen: HTTP and HTTPS addresses must differ");
     }
     if let Some(m) = &cfg.mcp
+        && !m.implicit
         && m.listen.port() != 0
         && (m.listen == gw.listen_http || Some(m.listen) == gw.listen_https)
     {
