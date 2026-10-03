@@ -32,7 +32,10 @@ fn site() -> Site {
     write(&root.join("files/b.txt"), "b");
     write(&root.join("files/A.txt"), "a");
     write(&root.join("files/.hidden"), "h");
+    // `<` and `>` are not allowed in Windows file names: the XSS name is Unix only, `&` and `'` work everywhere.
+    #[cfg(unix)]
     write(&root.join("files/<script>alert(1)<script>.txt"), "x");
+    write(&root.join("files/tom&jerry's.txt"), "x");
     write(&root.join("files/sp ace#1.txt"), "x");
     write(&root.join(".env"), "DB_PASSWORD=1");
     write(&root.join("big.txt"), &"lorem ipsum dolor sit amet ".repeat(400));
@@ -159,8 +162,14 @@ async fn listing_is_on_by_default() {
         "case-insensitive order"
     );
     assert!(!b.contains(".hidden"), "dotfiles are not listed: {b}");
-    assert!(!b.contains("<script>"), "names must be escaped: {b}");
-    assert!(b.contains("&lt;script&gt;"), "{b}");
+    assert!(
+        b.contains("tom&amp;jerry&#39;s.txt"),
+        "names must be escaped: {b}"
+    );
+    if cfg!(unix) {
+        assert!(!b.contains("<script>"), "names must be escaped: {b}");
+        assert!(b.contains("&lt;script&gt;"), "{b}");
+    }
     assert!(
         b.contains("sp%20ace%231.txt"),
         "href must be percent-encoded: {b}"

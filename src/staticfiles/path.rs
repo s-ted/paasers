@@ -57,6 +57,9 @@ pub fn parse(raw: &str, allow_hidden: bool) -> Result<Parsed, PathError> {
             "" | "." => {}
             ".." => return Err(PathError::NotFound),
             s if s.starts_with('.') && !allow_hidden => return Err(PathError::NotFound),
+            // Each segment must stay one plain name once pushed onto the root: on Windows `C:` or `c:x`
+            // is a drive prefix that would replace the root (`PathBuf::push`), so it never reaches the disk.
+            s if !is_plain_name(s) => return Err(PathError::NotFound),
             s => segments.push(s.to_string()),
         }
     }
@@ -64,6 +67,14 @@ pub fn parse(raw: &str, allow_hidden: bool) -> Result<Parsed, PathError> {
         segments,
         trailing_slash: decoded.ends_with('/'),
     })
+}
+
+fn is_plain_name(s: &str) -> bool {
+    let mut c = std::path::Path::new(s).components();
+    matches!(
+        (c.next(), c.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    ) && !s.contains(':')
 }
 
 #[cfg(test)]
@@ -111,6 +122,19 @@ mod tests {
     fn dangerous_bytes_are_bad_requests() {
         for p in ["/a%00b", "/a\\b", "/a%5cb", "/%ff", "/%c3"] {
             assert_eq!(parse(p, false), Err(PathError::BadRequest), "{p}");
+        }
+    }
+
+    #[test]
+    fn drive_prefixes_and_streams_are_never_segments() {
+        for p in [
+            "/C:",
+            "/c:/windows/win.ini",
+            "/docs/C:x",
+            "/a.txt:stream",
+            "/%43%3a",
+        ] {
+            assert_eq!(parse(p, true), Err(PathError::NotFound), "{p}");
         }
     }
 
