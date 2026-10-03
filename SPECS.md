@@ -34,9 +34,8 @@
 ### B. Le Gatekeeper (Authentification Non-Tech / Pre-prod)
 Destiné à protéger les environnements de staging/dev (`dev.client.com`) sans configuration tierce (zéro OAuth externe) :
 1. **Mode PSK (Mot de passe de site) :** Formulaire de login ultra-léger (HTML inliné, assets zéro-CDN). Hash Argon2id vérifié localement. Pose d'un cookie `HttpOnly` sécurisé.
-2. **Passkey / WebAuthn (Optionnel) :** Enregistrement biométrique (TouchID/FaceID) stocké dans SQLite après premier login par PSK.
-3. **Rate-Limiting d'authentification :** Protection anti-brute-force intégrée en mémoire via `governor`.
-4. **TOTP built-in :**
+2. **Rate-Limiting d'authentification :** Protection anti-brute-force intégrée en mémoire via `governor`.
+3. **TOTP built-in :**
 
 ### C. Les "Quick Wins" intégrés (Fonctionnalités type Enterprise)
 1. **Cache HTTP RFC 9111 :** Cache en mémoire/mmap avec support de `stale-while-revalidate` et purge par tags (`Surrogate-Key`).

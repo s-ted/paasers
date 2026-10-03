@@ -50,7 +50,7 @@ fn parse_ops(n: &NodeCtx<'_>, response: bool) -> Result<ParsedOps, ConfigError> 
             "remove" => OpKind::Remove,
             _ => {
                 let re =
-                    regex::Regex::new(c.arg_str(1)?).map_err(|e| c.err(format!("invalid regex: {e}")))?;
+                    regex_lite::Regex::new(c.arg_str(1)?).map_err(|e| c.err(format!("invalid regex: {e}")))?;
                 OpKind::Replace(re, c.arg_str(2)?.to_string())
             }
         };

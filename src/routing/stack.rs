@@ -59,7 +59,6 @@ pub fn build_stack(
     balancer: Arc<Balancer>,
     shared: &Shared,
     trusted: Arc<Vec<IpNet>>,
-    https_port: Option<u16>,
 ) -> Result<RouteSvc, BuildError> {
     let svc = match &route.static_files {
         Some(sf) => {
@@ -99,9 +98,8 @@ pub fn build_stack(
                 .gate
                 .get()
                 .ok_or_else(|| BuildError::Gatekeeper("state not initialised".into()))?;
-            let layer =
-                GatekeeperLayer::new(&route.id, &route.hosts, g, route.tls.is_some(), https_port, gate)
-                    .map_err(|e| BuildError::Gatekeeper(e.to_string()))?;
+            let layer = GatekeeperLayer::new(&route.id, g, route.tls.is_some(), gate)
+                .map_err(|e| BuildError::Gatekeeper(e.to_string()))?;
             RouteSvc::new(layer.layer(svc))
         }
         None => svc,

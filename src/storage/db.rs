@@ -8,12 +8,9 @@ const MIGRATIONS: &[&str] = &["CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY
    CREATE TABLE IF NOT EXISTS secrets (name TEXT PRIMARY KEY, value BLOB NOT NULL);
    CREATE TABLE IF NOT EXISTS acme_account (directory TEXT PRIMARY KEY, credentials TEXT NOT NULL, created_at INTEGER NOT NULL);
    CREATE TABLE IF NOT EXISTS certs (domain TEXT PRIMARY KEY, cert_pem TEXT NOT NULL, key_pem TEXT NOT NULL,
-                                     not_after INTEGER NOT NULL, issued_at INTEGER NOT NULL);
-   CREATE TABLE IF NOT EXISTS passkeys (id INTEGER PRIMARY KEY AUTOINCREMENT, route_id TEXT NOT NULL,
-                                        cred_id BLOB NOT NULL UNIQUE, passkey_json TEXT NOT NULL, label TEXT NOT NULL,
-                                        created_at INTEGER NOT NULL, last_used_at INTEGER);
-   CREATE INDEX IF NOT EXISTS passkeys_route ON passkeys(route_id);",
-    "ALTER TABLE certs ADD COLUMN directory TEXT NOT NULL DEFAULT '';"];
+                                     not_after INTEGER NOT NULL, issued_at INTEGER NOT NULL);",
+    "ALTER TABLE certs ADD COLUMN directory TEXT NOT NULL DEFAULT '';",
+    "DROP TABLE IF EXISTS passkeys;"];
 
 /// Cloneable handle to the SQLite thread. The thread stops when the last handle is dropped.
 #[derive(Clone)]
@@ -168,7 +165,7 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(v, "2");
+        assert_eq!(v, "3");
     }
 
     #[tokio::test]

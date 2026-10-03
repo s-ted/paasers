@@ -82,7 +82,6 @@ fn default_route(cfg: &Arc<Config>, shared: &Shared) -> Result<Arc<RouteRuntime>
         balancer.clone(),
         shared,
         Arc::new(cfg.gateway.trusted_proxies.clone()),
-        cfg.gateway.listen_https.map(|a| a.port()),
     )?;
     Ok(Arc::new(RouteRuntime {
         id: route.id.clone(),
@@ -118,7 +117,6 @@ pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> 
                     balancer.clone(),
                     shared,
                     trusted.clone(),
-                    cfg.gateway.listen_https.map(|a| a.port()),
                 )?,
                 balancer,
                 cache: r

@@ -24,7 +24,6 @@ fn cfg() -> GatekeeperCfg {
         session_duration: Duration::from_secs(3600),
         attempts: 5,
         window: Duration::from_secs(900),
-        passkey: false,
         cookie_name: "gate".into(),
     }
 }
@@ -50,7 +49,7 @@ fn rig(cfg: &GatekeeperCfg) -> Rig {
     }));
     let shared = Arc::new(GateShared::new(KEY, None));
     let route: Arc<str> = Arc::from("a.test");
-    let layer = GatekeeperLayer::new(&route, &["a.test".to_string()], cfg, false, None, &shared).unwrap();
+    let layer = GatekeeperLayer::new(&route, cfg, false, &shared).unwrap();
     Rig {
         svc: layer.layer(inner),
         calls,
@@ -316,7 +315,6 @@ async fn gate_paths_never_forwarded() {
     for (p, m) in [
         ("/__gate/login", Method::GET),
         ("/__gate/unknown", Method::GET),
-        ("/__gate/passkey", Method::GET),
         ("/__gate/x/y", Method::POST),
     ] {
         let (resp, _) = run(&mut r.svc, authed(p, m)).await;
@@ -351,7 +349,7 @@ async fn secure_flag_follows_tls() {
     let inner = RouteSvc::new(tower::service_fn(|_r: Req| async {
         Ok::<_, Infallible>(http::Response::new(empty()))
     }));
-    let layer = GatekeeperLayer::new(&route, &["a.test".to_string()], &c, true, Some(443), &shared).unwrap();
+    let layer = GatekeeperLayer::new(&route, &c, true, &shared).unwrap();
     let mut svc = layer.layer(inner);
     let (resp, _) = run(&mut svc, form("/__gate/login", "password=preview")).await;
     assert!(
@@ -360,79 +358,4 @@ async fn secure_flag_follows_tls() {
             .unwrap()
             .ends_with("; Secure")
     );
-}
-
-#[cfg(feature = "passkey")]
-#[tokio::test]
-async fn passkey_endpoints_require_session_and_known_state() {
-    let mut c = cfg();
-    c.passkey = true;
-    let shared = Arc::new(GateShared::new(KEY, None));
-    let route: Arc<str> = Arc::from("a.test");
-    let inner = RouteSvc::new(tower::service_fn(|_r: Req| async {
-        Ok::<_, Infallible>(http::Response::new(empty()))
-    }));
-    let layer = GatekeeperLayer::new(&route, &["a.test".to_string()], &c, true, Some(443), &shared).unwrap();
-    let mut svc = layer.layer(inner);
-    // Registration needs a PSK session.
-    let (resp, _) = run(&mut svc, form("/__gate/passkey/register/start", "")).await;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
-    // With a session, the start endpoint returns WebAuthn options.
-    let fp = fingerprint(&c.psk_hash, None);
-    let cookie = format!("gate={}", issue(&KEY, "a.test", &fp, 'p', now_unix() + 100));
-    let mut start = form("/__gate/passkey/register/start", "");
-    start
-        .headers_mut()
-        .insert(header::COOKIE, HeaderValue::from_str(&cookie).unwrap());
-    let (resp, body) = run(&mut svc, start).await;
-    assert_eq!(resp.status(), StatusCode::OK, "{body}");
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert!(v["id"].is_string() && v["options"]["publicKey"]["challenge"].is_string());
-    // Finishing with an unknown ceremony id is a 400.
-    let mut fin = form(
-        "/__gate/passkey/register/finish",
-        "{\"id\":\"nope\",\"credential\":{}}",
-    );
-    fin.headers_mut()
-        .insert(header::COOKIE, HeaderValue::from_str(&cookie).unwrap());
-    assert_eq!(run(&mut svc, fin).await.0.status(), StatusCode::BAD_REQUEST);
-    let (resp, _) = run(
-        &mut svc,
-        form(
-            "/__gate/passkey/login/finish",
-            "{\"id\":\"nope\",\"credential\":{}}",
-        ),
-    )
-    .await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    // The registration page is behind a PSK session too.
-    assert_eq!(
-        run(&mut svc, req(Method::GET, "/__gate/passkey"))
-            .await
-            .0
-            .status(),
-        StatusCode::SEE_OTHER
-    );
-}
-
-#[cfg(feature = "passkey")]
-#[test]
-fn pending_ceremonies_are_single_use_and_bounded() {
-    use super::passkey::{Ceremony, Pending};
-    let wa = super::passkey::build_webauthn(&["a.test".to_string()], "t", Some(443)).unwrap();
-    let wa = wa.get("a.test").unwrap();
-    let mk = || {
-        let (_, st) = wa
-            .start_passkey_registration(webauthn_rs::prelude::Uuid::new_v4(), "u", "U", None)
-            .unwrap();
-        Ceremony::Register(st, Arc::from("a.test"))
-    };
-    let p = Pending::default();
-    let id = p.put(mk()).unwrap();
-    assert!(p.take(&id).is_some());
-    assert!(p.take(&id).is_none(), "single use");
-    for _ in 0..1000 {
-        assert!(p.put(mk()).is_some());
-    }
-    assert!(p.put(mk()).is_none(), "table is bounded");
 }

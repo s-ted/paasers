@@ -1,6 +1,6 @@
 //! Form handling for `POST /__gate/login` and redirect target validation.
 use super::GateRt;
-use super::pages::{Mode, Page, render};
+use super::pages::{Page, render};
 use super::psk::verify_psk;
 use super::session::{issue, set_cookie_header};
 use crate::prelude::{ClientIp, IncidentKind, Resp, empty};
@@ -49,26 +49,22 @@ pub fn clear_cookie(rt: &GateRt) -> String {
     set_cookie_header(&rt.cookie_name, "", 0, rt.secure)
 }
 
-fn page(rt: &GateRt, status: StatusCode, msg: &str, next: &str, passkey_login: bool) -> Resp {
+fn page(rt: &GateRt, status: StatusCode, msg: &str, next: &str) -> Resp {
     render(&Page {
         title: &rt.title,
-        mode: Mode::Login,
         message: Some(msg),
         next,
         totp: rt.totp.is_some(),
-        passkey_login,
         status,
     })
 }
 
-pub fn login_page(rt: &GateRt, next: &str, passkey_login: bool) -> Resp {
+pub fn login_page(rt: &GateRt, next: &str) -> Resp {
     render(&Page {
         title: &rt.title,
-        mode: Mode::Login,
         message: None,
         next,
         totp: rt.totp.is_some(),
-        passkey_login,
         status: StatusCode::OK,
     })
 }
@@ -79,7 +75,7 @@ fn flag(mut r: Resp, kind: &'static str) -> Resp {
 }
 
 /// Handles the login form. Every attempt consumes limiter budget before anything is verified.
-pub async fn handle_post(rt: &GateRt, ip: ClientIp, body: &[u8], has_passkeys: bool) -> Resp {
+pub async fn handle_post(rt: &GateRt, ip: ClientIp, body: &[u8]) -> Resp {
     let (mut password, mut totp, mut next) = (String::new(), String::new(), String::new());
     for (k, v) in url::form_urlencoded::parse(body) {
         match k.as_ref() {
@@ -95,7 +91,7 @@ pub async fn handle_post(rt: &GateRt, ip: ClientIp, body: &[u8], has_passkeys: b
             "Too many attempts. Try again in {} minutes.",
             secs.div_ceil(60).max(1)
         );
-        let mut r = page(rt, StatusCode::TOO_MANY_REQUESTS, &msg, &next, has_passkeys);
+        let mut r = page(rt, StatusCode::TOO_MANY_REQUESTS, &msg, &next);
         if let Ok(v) = HeaderValue::from_str(&secs.to_string()) {
             r.headers_mut().insert(header::RETRY_AFTER, v);
         }
@@ -111,24 +107,11 @@ pub async fn handle_post(rt: &GateRt, ip: ClientIp, body: &[u8], has_passkeys: b
     if !(psk_ok && totp_ok) {
         // Same message whatever failed: no oracle for the PSK versus the second factor.
         return flag(
-            page(
-                rt,
-                StatusCode::UNAUTHORIZED,
-                "Invalid credentials.",
-                &next,
-                has_passkeys,
-            ),
+            page(rt, StatusCode::UNAUTHORIZED, "Invalid credentials.", &next),
             "auth",
         );
     }
     let cookie = session_cookie(rt, 'p');
-    if rt.passkey && !has_passkeys {
-        let target = format!(
-            "/__gate/passkey?next={}",
-            url::form_urlencoded::byte_serialize(next.as_bytes()).collect::<String>()
-        );
-        return redirect(&target, Some(cookie));
-    }
     redirect(&next, Some(cookie))
 }
 

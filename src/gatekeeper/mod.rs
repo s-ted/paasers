@@ -1,11 +1,9 @@
-//! Gatekeeper: environment barrier with an Argon2id PSK, optional TOTP and passkeys.
+//! Gatekeeper: environment barrier with an Argon2id PSK and optional TOTP.
 mod http_util;
 mod layer;
 mod limiter;
 mod login;
 mod pages;
-#[cfg(feature = "passkey")]
-pub mod passkey;
 mod psk;
 pub mod session;
 mod totp;
@@ -33,8 +31,6 @@ pub struct GateShared {
     pub argon_sem: Semaphore,
     pub db: Option<Db>,
     limiters: Mutex<HashMap<Arc<str>, Arc<LoginLimiter>>>,
-    #[cfg(feature = "passkey")]
-    pub pending: passkey::Pending,
 }
 
 impl GateShared {
@@ -44,8 +40,6 @@ impl GateShared {
             argon_sem: Semaphore::new(2),
             db,
             limiters: Mutex::new(HashMap::new()),
-            #[cfg(feature = "passkey")]
-            pending: passkey::Pending::default(),
         }
     }
 
@@ -90,21 +84,16 @@ pub struct GateRt {
     pub phc: Arc<str>,
     pub fingerprint: String,
     pub totp: Option<TotpChecker>,
-    pub passkey: bool,
     pub secure: bool,
     pub limiter: Arc<LoginLimiter>,
     pub shared: Arc<GateShared>,
-    #[cfg(feature = "passkey")]
-    pub webauthn: HashMap<String, Arc<webauthn_rs::Webauthn>>,
 }
 
 impl GateRt {
     pub fn build(
         route_id: &Arc<str>,
-        hosts: &[String],
         cfg: &GatekeeperCfg,
         secure: bool,
-        https_port: Option<u16>,
         shared: &Arc<GateShared>,
     ) -> Result<Self, GateError> {
         let totp = match &cfg.totp_secret {
@@ -113,8 +102,6 @@ impl GateRt {
             }
             None => None,
         };
-        #[cfg(not(feature = "passkey"))]
-        let _ = (hosts, https_port);
         Ok(Self {
             route_id: route_id.clone(),
             title: cfg.title.clone(),
@@ -123,16 +110,9 @@ impl GateRt {
             phc: Arc::from(cfg.psk_hash.as_str()),
             fingerprint: session::fingerprint(&cfg.psk_hash, cfg.totp_secret.as_deref()),
             totp,
-            passkey: cfg.passkey,
             secure,
             limiter: shared.limiter(route_id, cfg.attempts, cfg.window)?,
             shared: shared.clone(),
-            #[cfg(feature = "passkey")]
-            webauthn: if cfg.passkey {
-                passkey::build_webauthn(hosts, &cfg.title, https_port)?
-            } else {
-                HashMap::new()
-            },
         })
     }
 }

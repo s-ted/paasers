@@ -44,14 +44,23 @@ pub enum Command {
 }
 
 fn init_logs(cfg: &config::GatewayCfg) {
-    use tracing_subscriber::EnvFilter;
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&cfg.log.level));
-    let b = tracing_subscriber::fmt().with_env_filter(filter);
-    let _ = if cfg.log.json {
-        b.json().try_init()
+    use tracing_subscriber::filter::{LevelFilter, Targets};
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::{Layer, fmt};
+    // `Targets` understands `info,hyper=warn` directives without pulling a regex engine.
+    let parse = |s: &str| s.parse::<Targets>().ok();
+    let filter = std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|s| parse(&s))
+        .or_else(|| parse(&cfg.log.level))
+        .unwrap_or_else(|| Targets::new().with_default(LevelFilter::INFO));
+    let layer = if cfg.log.json {
+        fmt::layer().json().with_filter(filter).boxed()
     } else {
-        b.try_init()
+        fmt::layer().with_filter(filter).boxed()
     };
+    let _ = tracing_subscriber::registry().with(layer).try_init();
 }
 
 /// Loads the configuration. A missing *default* file means the built-in defaults (serve the current directory).

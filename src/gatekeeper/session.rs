@@ -28,7 +28,7 @@ pub fn issue(key: &[u8; 32], route: &str, fp: &str, m: char, exp: i64) -> String
     format!("v1.{exp}.{m}.{}", B64.encode(sig))
 }
 
-/// Returns the login method (`'p'` PSK, `'k'` passkey) of a valid cookie.
+/// Returns the login method (`'p'` PSK) of a valid cookie.
 pub fn verify(key: &[u8; 32], route: &str, fp: &str, cookie: &str, now: i64) -> Option<char> {
     let mut it = cookie.split('.');
     let (Some("v1"), Some(exp), Some(m), Some(sig), None) =

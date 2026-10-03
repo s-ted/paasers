@@ -1,6 +1,6 @@
 # Gatekeeper, protected access for previews (`gatekeeper`)
 
-A login page in front of the whole route. Ideal for preview environments: a shared password (PSK), optional TOTP, and passkeys.
+A login page in front of the whole route. Ideal for preview environments: a shared password (PSK), and optional TOTP.
 
 ## Defaults
 
@@ -11,13 +11,11 @@ A login page in front of the whole route. Ideal for preview environments: a shar
 | `title` | `Protected access` | |
 | `session-duration` | `14d` | between 1m and 90d |
 | `rate-limit attempts= window=` | `5` attempts, `15m` | `attempts` at least 1 |
-| `passkey` | `#false` | needs a `tls` route and the `passkey` cargo feature |
 | `cookie-name` | `__Host-gate` (TLS) or `__gate` | `[A-Za-z0-9_-]+` |
 
 * The session cookie is HMAC signed, `HttpOnly`, `SameSite=Lax`, and `Secure` with TLS.
 * Changing the PSK or the TOTP secret invalidates every session.
-* Pages live under `/__gate/` (login, logout, passkey). Cross-origin POST requests are refused (CSRF).
-* After a first PSK login, the visitor can register a passkey.
+* Pages live under `/__gate/` (login, logout). Cross-origin POST requests are refused (CSRF).
 * The gatekeeper runs before API key and JWT.
 
 ## Examples
@@ -53,7 +51,7 @@ gatekeeper {
 }
 ```
 
-Passkeys, with stricter brute force protection:
+Stricter brute force protection and a custom cookie name:
 
 ```kdl
 route "dev.example.com" {
@@ -61,7 +59,6 @@ route "dev.example.com" {
     upstream "10.0.1.11:8080"
     gatekeeper {
         psk-env "PREVIEW_PSK_HASH"
-        passkey #true
         rate-limit attempts=3 window="30m"
         cookie-name "preview"
     }

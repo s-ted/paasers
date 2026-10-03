@@ -345,30 +345,25 @@ fn gatekeeper_defaults_and_all() {
     assert_eq!(g.title, "Protected access");
     assert_eq!(g.cookie_name, "__gate");
     assert_eq!((g.attempts, g.window), (5, Duration::from_secs(900)));
-    assert!(g.totp_secret.is_none() && !g.passkey);
-    let src = format!(
-        r#"gateway {{
+    assert!(g.totp_secret.is_none());
+    let src = r#"gateway {
  default-email "a@b.c"
-}}
-route "a.com" {{
+}
+route "a.com" {
  upstream "10.0.0.1:80"
  tls
- gatekeeper {{
+ gatekeeper {
   title "T"
   psk-env "PSK_HASH"
   totp-secret-env "TOTP"
   session-duration "1h"
   rate-limit attempts=2 window="1m"
-  passkey {passkey}
   cookie-name "c"
- }}
-}}"#,
-        passkey = cfg!(feature = "passkey")
-    );
-    let g = parse(&src).unwrap().routes.remove(0).gatekeeper.unwrap();
+ }
+}"#;
+    let g = parse(src).unwrap().routes.remove(0).gatekeeper.unwrap();
     assert_eq!(g.totp_secret.unwrap().len(), 20);
     assert_eq!(g.session_duration, Duration::from_secs(3600));
-    assert_eq!(g.passkey, cfg!(feature = "passkey"));
     assert_eq!(g.cookie_name, "c");
 }
 
@@ -531,15 +526,9 @@ fn duplicate_host_across_routes() {
     assert!(err(s).contains("a.com"));
 }
 
-#[cfg(feature = "passkey")]
 #[test]
-fn passkey_requires_tls() {
-    assert!(
-        err(&route(&format!(
-            "gatekeeper {{ psk \"{HASH}\"\n passkey #true }}"
-        )))
-        .contains("tls")
-    );
+fn passkey_option_is_gone() {
+    assert!(err(&route(&format!("gatekeeper {{ psk \"{HASH}\"\n passkey #true }}"))).contains("passkey"));
 }
 
 #[test]

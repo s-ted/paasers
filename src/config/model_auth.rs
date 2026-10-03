@@ -51,7 +51,7 @@ pub enum OpKind {
     SetIfAbsent(String),
     Add(String),
     Remove,
-    Replace(regex::Regex, String),
+    Replace(regex_lite::Regex, String),
 }
 
 impl PartialEq for OpKind {

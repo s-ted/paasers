@@ -1,8 +1,7 @@
-//! SQLite storage on a dedicated thread: certificates, secrets, ACME account and passkeys.
+//! SQLite storage on a dedicated thread: certificates, secrets and ACME account.
 pub mod acme;
 pub mod certs;
 mod db;
-pub mod passkeys;
 pub mod secrets;
 
 pub use db::Db;

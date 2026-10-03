@@ -9,7 +9,7 @@
 * **Lightweight**: 32 MB memory budget. Measured at about 21.5 MB after 1000 requests (19 MB with `worker-threads 2`).
 * **Safe deployments**: weighted traffic split (canary, blue/green), active health checks, automatic retry on another backend, draining with `weight=0`.
 * **Incidents solved in one sentence**: when a backend goes down, users see a maintenance page with an **Incident ID**. An AI agent passes it to the built-in MCP server and gets the root cause.
-* **Protected previews**: shared password, TOTP and passkeys, with brute force protection.
+* **Protected previews**: shared password and TOTP, with brute force protection.
 * **Built-in security**: a generous per-IP rate limit, security response headers and a local MCP server are on by default (each has an `off` switch, see [Defaults](docs/features/defaults.md)). GeoIP, JWT and API keys are opt-in, trusted identity headers are always sanitized.
 * **Static files too**: a route can serve a directory (listing, index file, single page app mode, Range) behind the same TLS, login and rate limit as a proxied route. With no configuration at all, it serves the current directory.
 * **Fast**: RFC 9111 cache with stale-while-revalidate and stale-if-error, zstd/brotli/gzip compression on by default.
@@ -90,7 +90,7 @@ Each page documents the defaults and gives configuration examples.
 | [Compression](docs/features/compression.md) | zstd, brotli, gzip |
 | [GeoIP](docs/features/geoip.md) | block or allow by country |
 | [Rate limit](docs/features/rate-limit.md) | per IP, global or per path |
-| [Gatekeeper](docs/features/gatekeeper.md) | PSK, TOTP, passkeys |
+| [Gatekeeper](docs/features/gatekeeper.md) | PSK, TOTP |
 | [JWT](docs/features/jwt.md) | HMAC or public key, identity injection |
 | [API keys](docs/features/api-keys.md) | named SHA-256 digests |
 | [Transform](docs/features/transform.md) | headers and status codes |
@@ -115,7 +115,7 @@ paasers is deliberately narrow: an HTTP edge gateway for a fleet of private back
 | **JWT validation** | ✅ built in, HMAC, RSA, EC, EdDSA | ⚠️ community plugins or paid Hub | ⚠️ NGINX Plus or third party modules | ⚠️ third party modules |
 | **Incident ID and AI investigation (MCP)** | ✅ built in | ❌ | ❌ | ❌ |
 | **Metrics (Prometheus, OpenTelemetry)** | ❌ | ✅ built in | ⚠️ modules or Plus | ⚠️ modules |
-| **Gatekeeping (login page for previews)** | ✅ built in: shared password, TOTP, passkeys | ⚠️ Basic and Digest auth built in, OIDC and JWT only in paid Hub, otherwise forward auth to another service | ⚠️ Basic auth built in, login pages via `auth_request` to another service, TOTP only through third party modules | ⚠️ `mod_auth_form` (HTML form, needs `mod_session` and an account store), TOTP and OIDC through third party modules |
+| **Gatekeeping (login page for previews)** | ✅ built in: shared password, TOTP | ⚠️ Basic and Digest auth built in, OIDC and JWT only in paid Hub, otherwise forward auth to another service | ⚠️ Basic auth built in, login pages via `auth_request` to another service, TOTP only through third party modules | ⚠️ `mod_auth_form` (HTML form, needs `mod_session` and an account store), TOTP and OIDC through third party modules |
 | **Header and status transform** | ✅ built in: set, add, remove, regex replace, status remap | ✅ built in: `Headers` middleware, regex path rewrite, status rewrite in `Errors` | ✅ built in: `add_header`, `proxy_set_header`, `return`, rewrites | ⚠️ `mod_headers` module (set, append, edit, unset) |
 | **Maintenance page** | ✅ built in, with an Incident ID, HTML or JSON | ⚠️ `Errors` middleware, needs a separate service to serve the page | ✅ built in: `error_page`, custom page file | ✅ built in: `ErrorDocument`, custom page file |
 | **Geo-IP filtering** | ✅ built in: MaxMind database, country allow or block, country header | ⚠️ community plugins only | ⚠️ `ngx_http_geoip_module`, not built by default, legacy database format | ⚠️ third party modules (`mod_maxminddb`) |
@@ -156,7 +156,6 @@ They also combine well: paasers can sit behind another load balancer (`trusted-p
 * The cache is in memory (lost on restart), one variant per URL, no coalescing of concurrent misses.
 * ACME uses HTTP-01 only, so wildcard hosts need a certificate in `certs-dir` (or `tls self-signed=#true`).
 * WebSocket works over HTTP/1.1 only.
-* Passkeys pull in OpenSSL (vendored on musl). Build with `--no-default-features` to avoid it.
 
 ## Development
 
@@ -167,7 +166,7 @@ scripts/pebble.sh && PEBBLE_DIR=target/pebble cargo test --test acme -- --ignore
 scripts/rss.sh                        # memory budget (32 MB), needs the musl release build
 ```
 
-Manual checks that cannot be automated: passkeys (Chrome DevTools virtual authenticator), an MCP client (Claude Desktop or Cursor with `inspect_incident <ID>`), Let's Encrypt staging on a machine with public DNS.
+Manual checks that cannot be automated: an MCP client (Claude Desktop or Cursor with `inspect_incident <ID>`), Let's Encrypt staging on a machine with public DNS.
 
 ## License
 

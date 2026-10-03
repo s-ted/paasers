@@ -100,7 +100,7 @@ enum Op {
     SetIfAbsent(HeaderName, Template),
     Add(HeaderName, Template),
     Remove(HeaderName),
-    Replace(HeaderName, regex::Regex, String),
+    Replace(HeaderName, regex_lite::Regex, String),
 }
 
 fn compile(ops: &[HeaderOpCfg]) -> Vec<Op> {
