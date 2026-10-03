@@ -187,7 +187,7 @@ One-time setup:
   publishing on crates.io (repository `s-ted/paasers`, workflow `release.yml`, environment `release`) and delete the
   token: later releases authenticate through OIDC.
 
-Users can check a download by hand with `minisign -Vm <archive> -P <pubkey from Cargo.toml>` or
+Users can check a download by hand with `minisign -V -m <archive> -x <archive>.sig -P <pubkey from Cargo.toml>` or
 `gh attestation verify <archive> -R s-ted/paasers`.
 
 Manual checks that cannot be automated: an MCP client (Claude Desktop or Cursor with `inspect_incident <ID>`), Let's Encrypt staging on a machine with public DNS.

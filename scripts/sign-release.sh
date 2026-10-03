@@ -11,7 +11,15 @@ if [[ -z "$key_file" ]]; then
   [[ -n "${MINISIGN_KEY:-}" ]] || { echo "set MINISIGN_KEY or MINISIGN_KEY_FILE" >&2; exit 1; }
   key_file=$(mktemp)
   trap 'rm -f "$key_file"' EXIT
-  printf '%s\n' "$MINISIGN_KEY" > "$key_file"
+  # Tolerate copy-paste artefacts: CRLF line ends, surrounding blank lines, or the base64 line alone.
+  key=$(printf '%s\n' "$MINISIGN_KEY" | tr -d '\r' | sed '/^[[:space:]]*$/d')
+  b64=$(printf '%s\n' "$key" | grep -v '^untrusted comment:' | head -1 | tr -d '[:space:]')
+  if [[ ${#b64} -lt 100 ]]; then
+    # A minisign public key is 56 base64 chars, an unencrypted secret key is about 212.
+    echo "MINISIGN_KEY does not hold a secret key (${#b64} base64 chars): did you paste minisign.pub instead of minisign.key?" >&2
+    exit 1
+  fi
+  printf 'untrusted comment: minisign secret key\n%s\n' "$b64" > "$key_file"
 fi
 pubkey=$(cargo metadata --no-deps --format-version 1 \
   | jq -r '.packages[] | select(.name == "paasers") | .metadata.binstall.signing.pubkey')
