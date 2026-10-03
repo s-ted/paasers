@@ -115,3 +115,18 @@ jobs:
           merge-multiple: true
       # Archive names and paths must match [package.metadata.binstall]; no key on PRs, so no signature check.
       - run: REQUIRE_SIG=0 scripts/check-binstall.sh
+
+  # Single required check for the `main` ruleset: adding a job, target or runner needs no ruleset change.
+  # `always()` matters: a skipped required check counts as passed, so this job must run and fail explicitly.
+  # `acme` is left out on purpose (it downloads pebble, a network hiccup must not block merges).
+  ci-ok:
+    if: always()
+    needs: [lint, test, deny, package, build, binstall-layout]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All required jobs succeeded
+        run: |
+          echo "$RESULTS" | jq .
+          jq -e 'all(.[]; .result == "success")' <<<"$RESULTS" >/dev/null
+        env:
+          RESULTS: ${{ toJSON(needs) }}
