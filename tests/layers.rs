@@ -75,7 +75,7 @@ async fn geoip_blocks_by_forwarded_ip_from_trusted_proxy() {
     let b = text_backend().await;
     let g = spawn_gateway(&kdl(
         b,
-        &format!(" geoip database=\"{GEO}\" block-countries=\"GB\""),
+        &format!(" geoip database=\"{}\" block-countries=\"GB\"", kp(GEO)),
     ))
     .await;
     let blocked = raw_request(g.http_addr(), &get("/", "X-Forwarded-For: 81.2.69.160\r\n")).await;

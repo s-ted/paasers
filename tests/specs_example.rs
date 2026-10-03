@@ -48,7 +48,7 @@ fn env(k: &str) -> Option<String> {
 
 #[test]
 fn specs_example_parses() {
-    let src = VERBATIM.replace("/var/lib/geoip/GeoLite2-Country.mmdb", GEO);
+    let src = VERBATIM.replace("/var/lib/geoip/GeoLite2-Country.mmdb", &kp(GEO));
     let cfg = paasers::config::parse_str(&src, &env).unwrap();
     assert_eq!(cfg.routes.len(), 2);
     assert_eq!(cfg.routes[0].hosts, ["client.com", "www.client.com"]);
@@ -59,7 +59,7 @@ fn specs_example_parses() {
 fn the_truncated_psk_of_the_specs_is_rejected_with_a_clear_message() {
     // SPECS.md shows `$argon2id$v=19$m=19456,t=2,p=1$...`, which is not a valid hash.
     let src = VERBATIM
-        .replace("/var/lib/geoip/GeoLite2-Country.mmdb", GEO)
+        .replace("/var/lib/geoip/GeoLite2-Country.mmdb", &kp(GEO))
         .replace(
             "$argon2id$v=19$m=19456,t=2,p=1$ftC9LdPXCcZ6MiQpvWUwXA$haZvTFqngv2fUrBLJTBmAw2Ltxdy9HonzbKTkg4bXhI",
             "$argon2id$v=19$m=19456,t=2,p=1$...",
@@ -92,11 +92,11 @@ async fn specs_example_serves() {
     std::fs::write(certs.join("privkey.pem"), leaf_key.serialize_pem()).unwrap();
     let api_hash = "47bd0e2f856fe258ebba4d00930ab811d0c004dafae068c9d72511ca3512cca6";
     let src = VERBATIM
-        .replace("/var/lib/geoip/GeoLite2-Country.mmdb", GEO)
+        .replace("/var/lib/geoip/GeoLite2-Country.mmdb", &kp(GEO))
         .replace("listen \":80\" \":443\"", "listen \"127.0.0.1:0\" \"127.0.0.1:0\"")
-        .replace("storage-path \"/var/lib/gateway/certs.db\"", &format!("storage-path \"{}\"", dir.path().join("db").display()))
+        .replace("storage-path \"/var/lib/gateway/certs.db\"", &format!("storage-path \"{}\"", kp(dir.path().join("db"))))
         .replace("listen \"127.0.0.1:9090\"", "listen \"127.0.0.1:0\"")
-        .replace("gateway {", &format!("gateway {{\n    certs-dir \"{}\"", certs.display()))
+        .replace("gateway {", &format!("gateway {{\n    certs-dir \"{}\"", kp(&certs)))
         .replace("\"10.0.1.10:8080\"", &format!("\"{backend}\""))
         .replace("\"10.0.1.20:8080\"", &format!("\"{backend2}\""))
         .replace("\"10.0.1.11:8080\"", &format!("\"{backend}\""))

@@ -7,6 +7,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 
+/// A path as the inside of a KDL string: Windows backslashes are KDL escapes, forward slashes work everywhere.
+pub fn kp(p: impl AsRef<std::path::Path>) -> String {
+    p.as_ref().display().to_string().replace('\\', "/")
+}
+
 pub struct GatewayHandle {
     pub addrs: BoundAddrs,
     pub shared: std::sync::Arc<paasers::server::Shared>,
