@@ -46,7 +46,6 @@ pub fn parse_gatekeeper(n: &NodeCtx<'_>, tls: bool, env: Env<'_>) -> Result<Gate
         "totp-secret-env",
         "session-duration",
         "rate-limit",
-        "passkey",
         "cookie-name",
     ])?;
     for name in [
@@ -57,7 +56,6 @@ pub fn parse_gatekeeper(n: &NodeCtx<'_>, tls: bool, env: Env<'_>) -> Result<Gate
         "totp-secret-env",
         "session-duration",
         "rate-limit",
-        "passkey",
         "cookie-name",
     ] {
         s.single(name)?;
@@ -97,17 +95,6 @@ pub fn parse_gatekeeper(n: &NodeCtx<'_>, tls: bool, env: Env<'_>) -> Result<Gate
             return Err(r.err("attempts must be >= 1"));
         }
     }
-    let passkey = match s.single("passkey")? {
-        Some(p) => {
-            p.check_args(1, 1)?;
-            let v = p.arg_bool(0)?;
-            if v && !cfg!(feature = "passkey") {
-                return Err(p.err("passkey requires the `passkey` cargo feature"));
-            }
-            v
-        }
-        None => false,
-    };
     let cookie_name = match s.single("cookie-name")? {
         Some(c) => {
             let v = c.one_str()?;
@@ -133,7 +120,6 @@ pub fn parse_gatekeeper(n: &NodeCtx<'_>, tls: bool, env: Env<'_>) -> Result<Gate
         session_duration,
         attempts,
         window,
-        passkey,
         cookie_name,
     })
 }

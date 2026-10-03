@@ -142,9 +142,6 @@ fn check_route(
             ))
         })?;
     }
-    if r.gatekeeper.as_ref().is_some_and(|g| g.passkey) && r.tls.is_none() {
-        return sem(format!("route {id}: gatekeeper passkey requires `tls`"));
-    }
     Ok(())
 }
 

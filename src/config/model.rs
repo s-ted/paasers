@@ -243,6 +243,5 @@ pub struct GatekeeperCfg {
     pub session_duration: Duration,
     pub attempts: u32,
     pub window: Duration,
-    pub passkey: bool,
     pub cookie_name: String,
 }
