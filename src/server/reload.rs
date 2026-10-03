@@ -56,6 +56,31 @@ fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
         .and_then(|m| Some((m.modified().ok()?, m.len())))
 }
 
+/// SIGHUP stream on Unix. Elsewhere (or if registration fails) it never fires and the file watcher does the work.
+struct Hangup {
+    #[cfg(unix)]
+    sig: Option<tokio::signal::unix::Signal>,
+}
+
+fn hangup() -> Hangup {
+    Hangup {
+        #[cfg(unix)]
+        sig: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()).ok(),
+    }
+}
+
+impl Hangup {
+    async fn recv(&mut self) {
+        #[cfg(unix)]
+        if let Some(s) = self.sig.as_mut()
+            && s.recv().await.is_some()
+        {
+            return;
+        }
+        std::future::pending::<()>().await;
+    }
+}
+
 /// Runs reloads sequentially in a single task.
 pub async fn watch(
     path: PathBuf,
@@ -64,17 +89,14 @@ pub async fn watch(
     certs: CertManager,
     shutdown: CancellationToken,
 ) {
-    use tokio::signal::unix::{SignalKind, signal};
-    let Ok(mut hup) = signal(SignalKind::hangup()) else {
-        return;
-    };
+    let mut hup = hangup();
     let mut tick = tokio::time::interval(Duration::from_secs(2));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last = stamp(&path);
     loop {
         tokio::select! {
             () = shutdown.cancelled() => return,
-            _ = hup.recv() => {}
+            () = hup.recv() => {}
             _ = tick.tick() => {
                 let now = stamp(&path);
                 if now == last { continue; }

@@ -528,7 +528,12 @@ fn duplicate_host_across_routes() {
 
 #[test]
 fn passkey_option_is_gone() {
-    assert!(err(&route(&format!("gatekeeper {{ psk \"{HASH}\"\n passkey #true }}"))).contains("passkey"));
+    assert!(
+        err(&route(&format!(
+            "gatekeeper {{ psk \"{HASH}\"\n passkey #true }}"
+        )))
+        .contains("passkey")
+    );
 }
 
 #[test]

@@ -112,12 +112,7 @@ pub fn build(cfg: &Arc<Config>, shared: &Shared) -> Result<Runtime, BuildError> 
                 id: r.id.clone(),
                 hosts: r.hosts.clone(),
                 cfg: Arc::new(r.clone()),
-                service: stack::build_stack(
-                    r,
-                    balancer.clone(),
-                    shared,
-                    trusted.clone(),
-                )?,
+                service: stack::build_stack(r, balancer.clone(), shared, trusted.clone())?,
                 balancer,
                 cache: r
                     .cache

@@ -1,0 +1,14 @@
+# Cross builds go through `cargo zigbuild` (zig as C compiler and linker), see scripts/build-release.sh.
+# Static musl binaries: link the C runtime statically.
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# zig's clang turns mimalloc's __DATE__ into an error with -Wdate-time under -Werror.
+[env]
+CFLAGS_x86_64_pc_windows_gnu = "-Wno-date-time"
