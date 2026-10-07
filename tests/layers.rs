@@ -203,3 +203,32 @@ async fn api_key_or_jwt_with_exemption_and_anti_spoofing() {
     shutdown.cancel();
     let _ = task.await;
 }
+
+/// Dual-stack listener: a real IPv6 peer (`::1`) and an IPv4 peer seen as `::ffff:127.0.0.1`.
+#[tokio::test]
+async fn allow_ips_real_ipv6_and_mapped_ipv4_peers() {
+    let b = text_backend().await;
+    let src = |nets: &str| {
+        format!(
+            "gateway {{\n listen \"[::]:0\"\n trusted-proxies\n}}\nroute \"app.test\" {{\n upstream \"{b}\"\n allow-ips {nets}\n}}\n"
+        )
+    };
+    let g = spawn_gateway(&src("\"127.0.0.1\"")).await;
+    let v6 = std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, g.addrs.http.port()));
+    assert!(
+        raw_request(g.http_addr(), &get("/", ""))
+            .await
+            .starts_with("HTTP/1.1 200")
+    );
+    assert!(raw_request(v6, &get("/", "")).await.starts_with("HTTP/1.1 403"));
+    g.stop().await;
+    let g = spawn_gateway(&src("\"::1\"")).await;
+    let v6 = std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, g.addrs.http.port()));
+    assert!(raw_request(v6, &get("/", "")).await.starts_with("HTTP/1.1 200"));
+    assert!(
+        raw_request(g.http_addr(), &get("/", ""))
+            .await
+            .starts_with("HTTP/1.1 403")
+    );
+    g.stop().await;
+}
