@@ -198,3 +198,27 @@ async fn restart_only_settings_are_ignored() {
     token.cancel();
     let _ = task.await;
 }
+
+#[tokio::test]
+async fn editing_an_ip_set_alone_reapplies_allow_ips() {
+    let (b, _j) = spawn_echo_backend().await;
+    let dir = tempfile::tempdir().unwrap();
+    let storage = format!("storage-path \"{}\"", kp(dir.path().join("c.db")));
+    let path = dir.path().join("gw.kdl");
+    let with_set = |net: &str| {
+        src(
+            &storage,
+            &format!(
+                "ip-set \"me\" {{\n - \"{net}\"\n}}\nroute \"one.test\" {{\n upstream \"{b}\"\n allow-ips \"me\"\n}}\n"
+            ),
+        )
+    };
+    std::fs::write(&path, with_set("192.0.2.0/24")).unwrap();
+    let (addr, _shared, token, task) = start(&path).await;
+    assert!(status_of(addr, "one.test").await.contains("403"));
+    // Only the set changes, the route text is identical: the stack must still be rebuilt.
+    write_atomic(&path, &with_set("127.0.0.1"));
+    assert!(wait_for(addr, "one.test", "200").await, "set change not applied");
+    token.cancel();
+    let _ = task.await;
+}

@@ -424,3 +424,16 @@ async fn configured_routes_disable_the_implicit_default() {
     );
     g.stop().await;
 }
+
+#[tokio::test]
+async fn allow_ips_guards_static_routes() {
+    let s = site();
+    let refused = spawn_gateway(&kdl(&s, "", "allow-ips \"192.0.2.0/24\"")).await;
+    let (h, b) = fetch(&refused, "GET", "/hello.txt", "").await;
+    assert_eq!(status(&h), 403, "{h}");
+    assert!(!b.contains("hello world"));
+    refused.stop().await;
+    let allowed = spawn_gateway(&kdl(&s, "", "allow-ips {\n - \"127.0.0.0/8\"\n - \"::1\"\n}")).await;
+    assert_eq!(status(&fetch(&allowed, "GET", "/hello.txt", "").await.0), 200);
+    allowed.stop().await;
+}

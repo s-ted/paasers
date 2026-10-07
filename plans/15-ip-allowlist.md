@@ -83,7 +83,9 @@ Rules (config errors, positioned on the offending node):
 * `matcher_v4_v6_edges` (first/last address of a range, just outside, mixed families), `matcher_ipv4_mapped`, `matcher_many_ranges` (10 000 random ranges cross-checked against a linear scan).
 * `allowed_passes`, `refused_403_ip_blocked` (status, `IncidentKind`), `missing_client_ip_refused`.
 
-Integration (`tests/layers.rs`): `allow_ips_refuses_then_allows_through_xff` (gateway with `trusted-proxies "127.0.0.1"`: `X-Forwarded-For` outside the list ⇒ 403, inside ⇒ 200, backend never reached on refusal).
+Integration (`tests/layers.rs`): `allow_ips_refuses_then_allows_through_xff` (gateway with `trusted-proxies "127.0.0.1"`: `X-Forwarded-For` outside the list ⇒ 403, inside ⇒ 200, backend never reached on refusal), `allow_ips_real_ipv6_and_mapped_ipv4_peers` (dual-stack `[::]:0` listener: `::1` peer and `::ffff:127.0.0.1` peer each matched by its own family only).
+`tests/static_files.rs`: `allow_ips_guards_static_routes`. `tests/reload.rs`: `editing_an_ip_set_alone_reapplies_allow_ips` (only the set text changes, the route is rebuilt).
+Mutation check (manual, 2026-10-07): `<=` turned into `<` in the binary search, canonicalization removed, layer not wired: each one makes at least one of these tests fail.
 
 ## 5. Docs
 
