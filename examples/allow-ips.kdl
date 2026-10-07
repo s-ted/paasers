@@ -1,0 +1,43 @@
+// IP allowlists (see docs/features/allow-ips.md).
+gateway {
+    listen ":80" ":443"
+    storage-path "/var/lib/gateway/certs.db"
+    // Only the front load balancers may set X-Forwarded-For.
+    trusted-proxies {
+        - "lb"
+    }
+}
+
+ip-set "lb" {
+    - "10.0.0.2"           // load balancer A
+    - "10.0.0.3"           // load balancer B
+}
+
+ip-set "staff" {
+    - "203.0.113.0/24"     // Paris office
+    - "2001:db8:42::/48"   // Paris office, IPv6
+    - "198.51.100.7"       // VPN exit
+}
+
+// Back office: staff and one contractor only.
+route "admin.example.com" {
+    tls email="ops@example.com"
+    upstream "10.0.1.20:8080"
+    allow-ips {
+        - "staff"
+        - "192.0.2.10"         // contractor, until 2026-12
+        /- - "192.0.2.0/24"    // disabled for now
+    }
+}
+
+// Internal metrics, short inline list.
+route "metrics.example.com" {
+    upstream "10.0.1.40:9100"
+    allow-ips "10.0.0.0/8" "fd00::/8"
+}
+
+// Public site: no allow-ips, every client is served.
+route "www.example.com" {
+    tls email="ops@example.com"
+    upstream "10.0.1.10:8080"
+}

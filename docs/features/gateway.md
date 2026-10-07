@@ -12,7 +12,7 @@ A single optional block that configures the whole process. Every child node is a
 | `acme-ca-root` | none (private ACME CA, tests) |
 | `default-email` | none |
 | `certs-dir` | none |
-| `trusted-proxies` | private ranges: `10.0.0.0/8` `172.16.0.0/12` `192.168.0.0/16` `fc00::/7` (loopback excluded). Write `trusted-proxies` with no argument to trust nobody. |
+| `trusted-proxies` | private ranges: `10.0.0.0/8` `172.16.0.0/12` `192.168.0.0/16` `fc00::/7` (loopback excluded). Write `trusted-proxies` with no argument to trust nobody. Same list syntax as [`allow-ips`](allow-ips.md): arguments or one `- "<entry>"` per line, `ip-set` names accepted. |
 | `flight-recorder capacity=` | 500 (1 to 100000), `flight-recorder off` keeps nothing |
 | `log format= level=` | `text`, `info` (`RUST_LOG` wins) |
 | `limits` | `max-connections=10000`, `max-body=100MiB`, `header-read-timeout=30s`, `max-headers-size=64KiB` |
@@ -40,7 +40,7 @@ gateway {
 }
 ```
 
-Behind a cloud load balancer, to recover the real client IP (used by GeoIP, rate limit and logs):
+Behind a cloud load balancer, to recover the real client IP (used by `allow-ips`, GeoIP, rate limit and logs):
 
 ```kdl
 gateway {
@@ -49,6 +49,22 @@ gateway {
 ```
 
 `X-Forwarded-For` is read only when the TCP peer is in this list. The right-most address that is not trusted is then used.
+
+Longer lists, one commented entry per line, possibly sharing a named [`ip-set`](allow-ips.md):
+
+```kdl
+ip-set "lb" {
+    - "10.0.0.2"   // load balancer A
+    - "10.0.0.3"   // load balancer B
+}
+
+gateway {
+    trusted-proxies {
+        - "lb"
+        - "127.0.0.1"  // local stunnel
+    }
+}
+```
 
 Small machine, JSON logs for a collector:
 

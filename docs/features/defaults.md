@@ -1,6 +1,6 @@
 # Features on by default
 
-What paasers does with an empty configuration, with the default values and how to turn each one off. Everything else (TLS, GeoIP, gatekeeper, JWT, API keys, `static` with a directory) is off until you write its node.
+What paasers does with an empty configuration, with the default values and how to turn each one off. Everything else (TLS, GeoIP, IP allowlist, gatekeeper, JWT, API keys, `static` with a directory) is off until you write its node.
 
 Every feature below can be disabled, and `cargo test` checks it (`every_default_feature_can_be_disabled`).
 

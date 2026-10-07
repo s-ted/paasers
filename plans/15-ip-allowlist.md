@@ -1,6 +1,6 @@
 # P15: per-route IP allowlist (`allow-ips`) and named sets (`ip-set`)
 
-> Same rule as every phase: `cargo check`, `cargo test` and `cargo clippy --all-targets -- -D warnings`
+> Status: **implemented**. Same rule as every phase: `cargo check`, `cargo test` and `cargo clippy --all-targets -- -D warnings`
 > green before the commit. Order of work: this plan, then tests, then implementation, then docs and example.
 
 ## 1. Goals and decisions
@@ -77,6 +77,7 @@ Rules (config errors, positioned on the offending node):
 * `ip_set_declared_after_use`, `ip_set_reused_by_two_routes`, `trusted_proxies_block_form_and_set`.
 * Errors: `allow_ips_empty`, `allow_ips_unknown_set`, `ip_set_duplicate`, `ip_set_empty`, `ip_set_nested_rejected`, `ip_set_invalid_name`, `list_child_not_dash`, `list_child_with_property`, `duplicate_allow_ips`.
 * `comments_and_slashdash_ignored`.
+* `allow_ips_example_parses` (`examples/allow-ips.kdl`), `allow_ips_doc_snippets_parse` (every `kdl` block of `docs/features/allow-ips.md`).
 
 `layers::ipallow`:
 * `matcher_v4_v6_edges` (first/last address of a range, just outside, mixed families), `matcher_ipv4_mapped`, `matcher_many_ranges` (10 000 random ranges cross-checked against a linear scan).
@@ -86,10 +87,10 @@ Integration (`tests/layers.rs`): `allow_ips_refuses_then_allows_through_xff` (ga
 
 ## 5. Docs
 
-* `docs/features/allow-ips.md` (new), `docs/features/gateway.md` (`trusted-proxies` block form, sets), `docs/features/defaults.md` (absent = everyone), README feature list, `examples/gateway.kdl`.
+* `docs/features/allow-ips.md` (new), `docs/features/gateway.md` (`trusted-proxies` block form, sets), `docs/features/defaults.md` (absent = everyone), README feature list, `docs/features/mcp.md` (incident kind), `examples/allow-ips.kdl` (`examples/gateway.kdl` stays the SPECS example).
 * Spoofing note: behind the default `trusted-proxies` (private ranges), any host of the private network can forge `X-Forwarded-For`. Narrow `trusted-proxies` to the real front load balancer when `allow-ips` matters.
 
 ## 6. DoD P15
-- [ ] §4 tests green (`cargo test config::`, `cargo test layers::ipallow`, `cargo test --test layers allow_ips`).
-- [ ] `scripts/ci.sh` green (fmt, clippy, ≤ 250 lines).
-- [ ] Docs and example updated, `paasers check -c examples/gateway.kdl` OK.
+- [x] §4 tests green (`cargo test config::`, `cargo test layers::ipallow`, `cargo test --test layers allow_ips`).
+- [x] `scripts/ci.sh` green (fmt, clippy, ≤ 250 lines).
+- [x] Docs and example updated, `paasers check -c examples/allow-ips.kdl` OK.
