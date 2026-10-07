@@ -37,6 +37,7 @@ Notation: `node arg... prop=value { children }`. **(req)** = required. Default i
 gateway { ... }            singleton, optional (all defaults)
 mcp-server { ... }         singleton, optional (absent = MCP disabled)
 route <host>+ { ... }      0..n
+ip-set "<name>" { ... }   0..n, named IP list (plans/15 §2)
 ```
 Any other top-level node ⇒ error `unknown node`.
 
@@ -53,7 +54,7 @@ pub struct Config { pub gateway: GatewayCfg, pub mcp: Option<McpCfg>, pub routes
 | `acme-ca-root` | `acme-ca-root "<pem path>"` | `Option<PathBuf>` (pebble tests) | absent |
 | `certs-dir` | `certs-dir "<directory>"` | `Option<PathBuf>`: local certificates scanned by TLS auto mode (`plans/13` §3) | absent |
 | `default-email` | `default-email "<email>"` | `Option<String>` | absent |
-| `trusted-proxies` | `trusted-proxies "<cidr>"...` | `Vec<ipnet::IpNet>` | empty |
+| `trusted-proxies` | `trusted-proxies ["<entry>"...] [{ - "<entry>" }]` (IP list, plans/15 §2) | `Vec<ipnet::IpNet>` | private ranges |
 | `flight-recorder` | `flight-recorder capacity=<u32>` | `flight_recorder_capacity: usize` (1..=100 000) | 500 |
 | `log` | `log format="text"\|"json" level="<EnvFilter>"` | `LogCfg { json: bool, level: String }` | `text`, `info` (overridden by `RUST_LOG` if set) |
 | `limits` | `limits max-connections=<u32> max-body="<size>" header-read-timeout="<dur>" max-headers-size="<size>"` | `Limits { max_connections: usize, max_body: u64, header_read_timeout: Duration, max_headers_size: u64 }` | 10000, `100MiB`, `30s`, `64KiB` |
@@ -97,6 +98,7 @@ Children of `route` (all optional except `upstream`):
 | `jwt-validation` | 0..1 | 3.15 |
 | `api-keys` | 0..1 | 3.16 |
 | `transform` | 0..1 | 3.17 |
+| `allow-ips` | 0..1 | plans/15 |
 | `redirect-https` | 0..1: `redirect-https #false` | `bool`, default `#true` if `tls` present, whatever the TLS mode |
 
 ### 3.5 `upstream "<ip:port>" [weight=<u32>]`
