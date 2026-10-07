@@ -20,6 +20,7 @@ fn features(r: &RouteRuntime) -> Vec<&'static str> {
         (c.cache.is_some(), "cache"),
         (c.compression.is_some(), "compression"),
         (c.geoip.is_some(), "geoip"),
+        (c.allow_ips.is_some(), "allow-ips"),
         (!c.rate_limits.is_empty(), "rate-limit"),
         (c.gatekeeper.is_some(), "gatekeeper"),
         (c.jwt.is_some(), "jwt"),
@@ -132,6 +133,7 @@ pub fn hint(last: &Incident) -> String {
         "rate_limited" => "Client limited by rate-limit.".into(),
         "auth" => "Authentication failure (gatekeeper/JWT/API key).".into(),
         "geo_blocked" => "Country blocked by the GeoIP rule.".into(),
+        "ip_blocked" => format!("Client address not in the allow-ips list of route {route}."),
         "tls_fallback" => "Certificate source changed for this host: check certs-dir and ACME.".into(),
         "payload_too_large" => "Request body larger than limits max-body.".into(),
         _ => "See detail.".into(),
@@ -257,6 +259,7 @@ mod tests {
             "rate_limited",
             "auth",
             "geo_blocked",
+            "ip_blocked",
             "payload_too_large",
             "tls_fallback",
         ] {

@@ -7,6 +7,7 @@ use crate::layers::apikey::ApiKeyLayer;
 use crate::layers::compression;
 use crate::layers::fallback::FallbackLayer;
 use crate::layers::geoip::GeoIpLayer;
+use crate::layers::ipallow::IpAllowLayer;
 use crate::layers::jwt::JwtLayer;
 use crate::layers::ratelimit::RateLimitLayer;
 use crate::layers::transform::TransformLayer;
@@ -116,6 +117,11 @@ pub fn build_stack(
             let layer = GeoIpLayer::new(g, &shared.geoip).map_err(|e| BuildError::GeoIp(e.to_string()))?;
             RouteSvc::new(layer.layer(svc))
         }
+        None => svc,
+    };
+    // Outermost: a refused client spends no rate-limit budget, no GeoIP lookup, no backend.
+    let svc = match &route.allow_ips {
+        Some(nets) => RouteSvc::new(IpAllowLayer::new(nets).layer(svc)),
         None => svc,
     };
     Ok(svc)

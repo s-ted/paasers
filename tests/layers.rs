@@ -98,6 +98,48 @@ async fn geoip_blocks_by_forwarded_ip_from_trusted_proxy() {
 }
 
 #[tokio::test]
+async fn allow_ips_refuses_then_allows_through_xff() {
+    let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let h = hits.clone();
+    let (b, _j) = spawn_backend(move |_req| {
+        h.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        async { http::Response::new(Full::new(Bytes::from_static(b"ok"))) }
+    })
+    .await;
+    let src = format!(
+        "ip-set \"office\" {{\n - \"192.0.2.0/24\" // office\n}}\n{}",
+        kdl(b, " allow-ips {\n  - \"office\"\n  - \"2001:db8::1\"\n }")
+    );
+    let g = spawn_gateway(&src).await;
+    let refused = raw_request(g.http_addr(), &get("/", "X-Forwarded-For: 198.51.100.1\r\n")).await;
+    assert!(refused.starts_with("HTTP/1.1 403"), "{refused}");
+    assert_eq!(
+        hits.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "backend never reached"
+    );
+    // The TCP peer (127.0.0.1) is a trusted proxy but not in the list: refused without XFF too.
+    assert!(
+        raw_request(g.http_addr(), &get("/", ""))
+            .await
+            .starts_with("HTTP/1.1 403")
+    );
+    for xff in ["192.0.2.42", "2001:db8::1"] {
+        let ok = raw_request(g.http_addr(), &get("/", &format!("X-Forwarded-For: {xff}\r\n"))).await;
+        assert!(ok.starts_with("HTTP/1.1 200"), "{xff}: {ok}");
+    }
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert!(
+        g.shared
+            .recorder
+            .query(&Default::default())
+            .iter()
+            .any(|i| i.kind == "ip_blocked")
+    );
+    g.stop().await;
+}
+
+#[tokio::test]
 async fn rate_limit_returns_429_with_retry_after() {
     let b = text_backend().await;
     let g = spawn_gateway(&kdl(b, " rate-limit rps=1 burst=2")).await;

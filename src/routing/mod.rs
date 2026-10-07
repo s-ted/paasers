@@ -68,6 +68,7 @@ fn default_route(cfg: &Arc<Config>, shared: &Shared) -> Result<Arc<RouteRuntime>
         cache: None,
         compression: Some(crate::config::CompressionCfg::default()),
         geoip: None,
+        allow_ips: None,
         rate_limits: Vec::new(),
         gatekeeper: None,
         jwt: None,
