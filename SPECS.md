@@ -45,6 +45,7 @@ Destiné à protéger les environnements de staging/dev (`dev.client.com`) sans 
 5. **GeoIP Filtering / Enrichment :** Lecture d'une base MaxMind `.mmdb` en `mmap` pour bloquer des pays ou injecter `X-Country-Code`.
 6. **Compression Gzip / Zstd / Brotli :** Streaming asynchrone des réponses.
 7. **Payload transformation: ** Req/Resp Headers injection/deletion/regex-subs, status code
+8. **IP Allowlist par route :** liste optionnelle de réseaux autorisés (`allow-ips`, CIDR ou IP, IPv4 et IPv6). Absente : aucun filtrage. Hors liste : 403. Des listes nommées (`ip-set`), déclarées une fois, sont réutilisables dans toutes les routes et dans `trusted-proxies`. Une entrée par ligne pour pouvoir commenter chaque plage.
 
 ### D. Observabilité & Flight Recorder
 1. **W3C Trace Context :** Génération/propagation d'un en-tête `traceparent`. L'ID d'incident affiché au client en cas de panne **est** le `trace_id`.
@@ -85,6 +86,12 @@ route "client.com" "www.client.com" {
     fallback status=503 show-incident-id=true
 }
 
+// Liste nommée, réutilisable par plusieurs routes
+ip-set "staff" {
+    - "203.0.113.0/24"   // bureau
+    - "198.51.100.7"     // sortie VPN
+}
+
 route "dev.client.com" {
     tls email="admin@monpaas.net"
     upstream "10.0.1.11:8080"
@@ -100,6 +107,12 @@ route "dev.client.com" {
         secret-env "JWT_SECRET_KEY"
         issuer "https://auth.client.com"
         inject-headers true
+    }
+
+    // Seuls ces clients atteignent la route (403 sinon)
+    allow-ips {
+        - "staff"
+        - "192.0.2.10"       // prestataire
     }
 }
 ```
@@ -128,6 +141,39 @@ route "plain.client.com" { }                                      // HTTP unique
 * **`redirect-https` :** vaut `#true` par défaut pour tous les modes TLS.
 * **Observabilité :** chaque changement de source de certificat est journalisé et enregistré comme incident `tls_fallback`. Le MCP expose la source de chaque hôte (`local`, `acme`, `local-expired`, `self-signed`).
 * `cert-file` et `key-file` n'existent pas : un répertoire de certificats les remplace.
+
+### 4.2 IP Allowlist et listes nommées
+
+```kdl
+// Liste nommée, déclarée une fois au premier niveau, réutilisable partout
+ip-set "staff" {
+    - "203.0.113.0/24"     // bureau
+    - "2001:db8:42::/48"   // bureau, IPv6
+    - "198.51.100.7"       // sortie VPN
+}
+
+route "admin.client.com" {
+    upstream "10.0.1.20:8080"
+    allow-ips {
+        - "staff"              // référence à la liste nommée
+        - "192.0.2.10"         // prestataire
+        /- - "192.0.2.0/24"    // entrée désactivée
+    }
+}
+
+gateway {
+    trusted-proxies {          // même syntaxe de liste
+        - "10.0.0.2"           // load balancer frontal
+    }
+}
+```
+
+* **Absence de `allow-ips` :** aucun filtrage (pas de `0.0.0.0/0` implicite, qui oublierait l'IPv6).
+* **Entrée :** CIDR ou IP seule (IPv4 ou IPv6), sinon nom d'un `ip-set`. Une entrée par enfant `-`, la forme positionnelle `allow-ips "a" "b"` reste acceptée pour les listes courtes.
+* **`ip-set` :** contient uniquement des réseaux (pas d'imbrication), nom unique, jamais vide.
+* **Refus :** 403 via la page d'erreur de la gateway (Incident ID), incident `ip_blocked`. Le filtre est la première couche de la route : un client refusé ne consomme ni rate-limit, ni gatekeeper, ni backend.
+* **IP client :** celle déjà utilisée par le rate-limit et la GeoIP (`X-Forwarded-For` n'est lu que si le pair TCP est dans `trusted-proxies`).
+* **Pas de `deny`** (YAGNI). Détails : `plans/15-ip-allowlist.md`.
 
 ---
 

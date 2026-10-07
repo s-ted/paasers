@@ -38,7 +38,7 @@ flowchart LR
   ENTRY --> STACK[Route Tower stack]
   subgraph STACK[Tower stack per route, fixed order]
     direction TB
-    L1[GeoIP] --> L2[RateLimit] --> L3[Gatekeeper] --> L4[ApiKey] --> L5[JWT] --> L6[Transform] --> L7[Compression] --> L8[Cache] --> L9[Fallback] --> P[Proxy + LB + Health]
+    L0[IpAllow] --> L1[GeoIP] --> L2[RateLimit] --> L3[Gatekeeper] --> L4[ApiKey] --> L5[JWT] --> L6[Transform] --> L7[Compression] --> L8[Cache] --> L9[Fallback] --> P[Proxy + LB + Health]
   end
   P -->|HTTP/1.1| U1[(10.0.x.y:port)]
   MCP[MCP server 127.0.0.1:9090] -.reads.-> FR[(Flight Recorder)]
@@ -54,6 +54,7 @@ Order **outer → inner** (the first one sees the request first):
 | # | Layer | Why at this position |
 |---|-------|------------------------|
 | 0 | `Entry` (outside the stack) | trace-id, route resolution, flight-recorder recording, `traceparent`/`X-Request-Id` headers on the response |
+| 0b | `IpAllowLayer` | `allow-ips` (plans/15): cheapest rejection of all (binary search, no I/O), before any budget is spent |
 | 1 | `GeoIpLayer` | cheapest possible rejection (mmap lookup), and adds `X-Country-Code` |
 | 2 | `RateLimitLayer` | protects everything that follows (including the gatekeeper's argon2) |
 | 3 | `GatekeeperLayer` | serves `/__gate/*` + requires a session cookie |
@@ -103,6 +104,7 @@ A layer not configured on the route **is not inserted** (zero cost), except `Fal
 | D30 | Routing: host only or host+path? | **Host only** (SPECS: "Host-based routing"). A hostname belongs to exactly one route (duplicate ⇒ config error). `matchit` serves as a radix tree over **reversed DNS labels** (`www.client.com` ⇒ `/com/client/www`, wildcard `*.client.com` ⇒ `/com/client/{w}`), tested. Per-path overrides exist only in `rate-limit path=` (prefix). |
 | D31 | Semantics of `listen` | 1st argument = HTTP, 2nd = HTTPS (order of the SPECS example). `":80"` = dual-stack socket `[::]:80` (`set_only_v6(false)`, tested) accepting IPv4 and IPv6. See `plans/01-config.md`. |
 | D32 | Project language | English only: plans, code, comments, logs, error messages, UI default texts, MCP descriptions, README and commits (see plans/00 §3 rule 1). French texts quoted from SPECS.md (e.g. the gatekeeper `title` in the example) remain valid config values but are never defaults. |
+| D33 | IP allowlist | `allow-ips` per route, allow only, absent = everyone, refusal 403 `ip_blocked`. Named `ip-set` lists at top level, shared with `trusted-proxies`. One entry per `-` child (commentable). Aggregated `ipnet` ranges + binary search, no new crate. See `plans/15-ip-allowlist.md`. |
 
 ---
 
@@ -263,6 +265,7 @@ SPECS rule respected: during development, never a full `cargo test`; phase P12 r
 | P12 | `plans/12-testing-release.md` | integration tests, RSS, musl, systemd, README | all |
 | P13 | `plans/13-tls-modes.md` | TLS auto mode (local `certs-dir` > ACME > self-signed), `self-signed` mode, per-route ACME staging, `cert-file`/`key-file` removed (implemented) | P12 |
 | P14 | `plans/14-static-files.md` | `static` route backend (miniserve-like: directory listing, index, SPA mode, Range), terminal service of the stack | P13 |
+| P15 | `plans/15-ip-allowlist.md` | `allow-ips` per route, named `ip-set`, shared IP list syntax (also `trusted-proxies`), outermost layer | P14 |
 
 Each phase = at least one commit; the binary compiles and `clippy -D warnings` passes **at the end of each phase**.
 
@@ -353,6 +356,7 @@ tests/fixtures/{GeoIP2-Country-Test.mmdb, *.kdl, jwt keys}
 | `plans/10-security-layers.md` | JWT, API keys, rate-limit, GeoIP, compression, transform |
 | `plans/11-mcp.md` | MCP server, auth, 4 tools, schemas |
 | `plans/12-testing-release.md` | Integration tests, fixtures, CI, musl, systemd, RSS |
+| `plans/15-ip-allowlist.md` | Per-route IP allowlist, named IP sets, shared list syntax |
 | PLAN.md §13 | Traceability matrix SPECS requirement → plan → test → observation |
 
 ---
@@ -403,6 +407,7 @@ Each explicit requirement of SPECS.md is linked to the section that specifies it
 | §3C.5 GeoIP mmap, blocking, `X-Country-Code` | D18, plans/10 §2 | `layers::geoip::tests::*` | `81.2.69.160` ⇒ `GB`, private IP ⇒ None |
 | §3C.6 Streaming gzip/zstd/brotli compression | D19, plans/10 §5 | `layers::compression::tests::*`, `tests/cache.rs` | zstd applied; 101 not compressed |
 | §3C.7 Header / regex / status transform | D20, plans/10 §6 | `layers::transform::tests::*` | — |
+| §3C.8 Per-route IP allowlist, named sets | D33, plans/15 | `config::tests_ipset::*`, `layers::ipallow::tests::*`, `tests/layers.rs::allow_ips_refuses_then_allows_through_xff` | — |
 | §3D.1 W3C traceparent | plans/06 §2 | `trace::tests::*` | tested |
 | §3D.2 Ring buffer of 500 errors | D26, plans/06 §3 | `recorder::tests::*` | — |
 | §3D.3 MCP: 4 tools, token | plans/11 | `tests/mcp.rs::*` | tools + error results + shared state tested |
