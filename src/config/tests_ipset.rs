@@ -177,7 +177,10 @@ fn duplicate_allow_ips() {
 }
 
 fn read(rel: &str) -> String {
-    std::fs::read_to_string(format!("{}/{rel}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+    // Windows checkouts may convert line endings (CRLF): the snippet splitter works on `\n`.
+    std::fs::read_to_string(format!("{}/{rel}", env!("CARGO_MANIFEST_DIR")))
+        .unwrap()
+        .replace("\r\n", "\n")
 }
 
 #[test]
