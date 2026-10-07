@@ -24,9 +24,15 @@ const ROUTE_NODES: &[&str] = &[
     "transform",
     "redirect-https",
     "retry",
+    "allow-ips",
 ];
 
-pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<RouteCfg, ConfigError> {
+pub fn parse_route(
+    n: &NodeCtx<'_>,
+    gw: &GatewayCfg,
+    sets: &super::parse_ipset::IpSets,
+    env: Env<'_>,
+) -> Result<RouteCfg, ConfigError> {
     n.check_props(&[])?;
     n.check_args(1, usize::MAX)?;
     let hosts: Vec<String> = n
@@ -102,6 +108,13 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
         None => Some(defaults::security_transform()),
     };
     let rate_limits = feat::parse_rate_limits(&scope.all("rate-limit"))?;
+    let allow_ips = match scope.single("allow-ips")? {
+        Some(a) => match super::parse_ipset::ip_list(&a, sets)? {
+            v if v.is_empty() => return Err(a.err("allow-ips needs at least one entry")),
+            v => Some(v),
+        },
+        None => None,
+    };
     Ok(RouteCfg {
         id,
         hosts,
@@ -124,6 +137,7 @@ pub fn parse_route(n: &NodeCtx<'_>, gw: &GatewayCfg, env: Env<'_>) -> Result<Rou
             .single("geoip")?
             .map(|c| feat::parse_geoip(&c))
             .transpose()?,
+        allow_ips,
         rate_limits,
         gatekeeper: scope
             .single("gatekeeper")?

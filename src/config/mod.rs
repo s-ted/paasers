@@ -7,6 +7,7 @@ pub mod model_auth;
 mod parse;
 mod parse_features;
 pub(crate) mod parse_gate;
+mod parse_ipset;
 mod parse_jwt;
 mod parse_route;
 mod parse_tls;
@@ -29,9 +30,10 @@ pub fn parse_str(src: &str, env: Env<'_>) -> Result<Config, ConfigError> {
         nodes: doc.nodes(),
         src,
     };
-    scope.check_only(&["gateway", "mcp-server", "route"])?;
+    scope.check_only(&["gateway", "mcp-server", "route", "ip-set"])?;
+    let sets = parse_ipset::parse_ip_sets(&scope)?;
     let gateway = match scope.single("gateway")? {
-        Some(g) => parse::parse_gateway(&g)?,
+        Some(g) => parse::parse_gateway(&g, &sets)?,
         None => parse::default_gateway(),
     };
     // On by default (local only, no token). `mcp-server off` disables it.
@@ -42,7 +44,7 @@ pub fn parse_str(src: &str, env: Env<'_>) -> Result<Config, ConfigError> {
     let routes = scope
         .all("route")
         .iter()
-        .map(|r| parse_route::parse_route(r, &gateway, env))
+        .map(|r| parse_route::parse_route(r, &gateway, &sets, env))
         .collect::<Result<Vec<_>, _>>()?;
     let cfg = Config { gateway, mcp, routes };
     validate::validate(&cfg)?;
@@ -60,3 +62,5 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ipset;

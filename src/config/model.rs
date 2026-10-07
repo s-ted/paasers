@@ -76,6 +76,8 @@ pub struct RouteCfg {
     pub cache: Option<CacheCfg>,
     pub compression: Option<CompressionCfg>,
     pub geoip: Option<GeoIpCfg>,
+    /// Resolved and aggregated `allow-ips`; `None` = every client is allowed.
+    pub allow_ips: Option<Vec<IpNet>>,
     pub rate_limits: Vec<RateLimitCfg>,
     pub gatekeeper: Option<GatekeeperCfg>,
     pub jwt: Option<JwtCfg>,

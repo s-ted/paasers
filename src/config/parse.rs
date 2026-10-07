@@ -58,7 +58,7 @@ fn dur_arg(n: &NodeCtx<'_>) -> Result<Duration, ConfigError> {
     units::parse_duration(n.one_str()?).map_err(|m| n.err(m))
 }
 
-pub fn parse_gateway(n: &NodeCtx<'_>) -> Result<GatewayCfg, ConfigError> {
+pub fn parse_gateway(n: &NodeCtx<'_>, sets: &super::parse_ipset::IpSets) -> Result<GatewayCfg, ConfigError> {
     n.check_args(0, 0)?;
     n.check_props(&[])?;
     let scope = n.scope();
@@ -99,12 +99,7 @@ pub fn parse_gateway(n: &NodeCtx<'_>) -> Result<GatewayCfg, ConfigError> {
         g.default_email = Some(c.one_str()?.to_string());
     }
     if let Some(c) = scope.single("trusted-proxies")? {
-        c.check_props(&[])?;
-        g.trusted_proxies = c
-            .args_str()?
-            .into_iter()
-            .map(|s| units::parse_net(s).map_err(|m| c.err(m)))
-            .collect::<Result<_, _>>()?;
+        g.trusted_proxies = super::parse_ipset::ip_list(&c, sets)?;
     }
     if let Some(c) = scope.single("flight-recorder")? {
         c.check_args(0, 1)?;
