@@ -10,7 +10,7 @@
 * **Safe deployments**: weighted traffic split (canary, blue/green), active health checks, automatic retry on another backend, draining with `weight=0`.
 * **Incidents solved in one sentence**: when a backend goes down, users see a maintenance page with an **Incident ID**. An AI agent passes it to the built-in MCP server and gets the root cause.
 * **Protected previews**: shared password and TOTP, with brute force protection.
-* **Built-in security**: a generous per-IP rate limit, security response headers and a local MCP server are on by default (each has an `off` switch, see [Defaults](docs/features/defaults.md)). GeoIP, JWT and API keys are opt-in, trusted identity headers are always sanitized.
+* **Built-in security**: a generous per-IP rate limit, security response headers and a local MCP server are on by default (each has an `off` switch, see [Defaults](docs/features/defaults.md)). GeoIP, IP allowlists, JWT and API keys are opt-in, trusted identity headers are always sanitized.
 * **Static files too**: a route can serve a directory (listing, index file, single page app mode, Range) behind the same TLS, login and rate limit as a proxied route. With no configuration at all, it serves the current directory.
 * **Fast**: RFC 9111 cache with stale-while-revalidate and stale-if-error, zstd/brotli/gzip compression on by default.
 * **Easy to operate**: hot reload (`SIGHUP` or file change), graceful shutdown, an invalid config never replaces a good one, errors report line and column.
@@ -89,6 +89,7 @@ Each page documents the defaults and gives configuration examples.
 | [HTTP cache](docs/features/cache.md) | RFC 9111, stale serving, tag purge |
 | [Compression](docs/features/compression.md) | zstd, brotli, gzip |
 | [GeoIP](docs/features/geoip.md) | block or allow by country |
+| [IP allowlist](docs/features/allow-ips.md) | restrict a route to networks, named reusable `ip-set` lists |
 | [Rate limit](docs/features/rate-limit.md) | per IP, global or per path |
 | [Gatekeeper](docs/features/gatekeeper.md) | PSK, TOTP |
 | [JWT](docs/features/jwt.md) | HMAC or public key, identity injection |
@@ -96,7 +97,7 @@ Each page documents the defaults and gives configuration examples.
 | [Transform](docs/features/transform.md) | headers and status codes |
 | [MCP server](docs/features/mcp.md) | incident investigation by an AI agent |
 
-Layer order for every request: GeoIP, rate limit, gatekeeper, API key, JWT, transform, compression, cache, fallback, then the proxy or the static file service.
+Layer order for every request: IP allowlist, GeoIP, rate limit, gatekeeper, API key, JWT, transform, compression, cache, fallback, then the proxy or the static file service.
 
 The format is KDL (v1 and v2 accepted). Any unknown node or property is an error, and `${X}-env` options read an environment variable at load time.
 

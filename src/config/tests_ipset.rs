@@ -175,3 +175,50 @@ fn duplicate_allow_ips() {
     let e = err(&route("allow-ips \"::1\"\n allow-ips \"::2\""));
     assert!(e.contains("duplicate node `allow-ips`"), "{e}");
 }
+
+fn read(rel: &str) -> String {
+    std::fs::read_to_string(format!("{}/{rel}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+}
+
+#[test]
+fn allow_ips_example_parses() {
+    let c = parse(&read("examples/allow-ips.kdl")).unwrap();
+    assert_eq!(c.gateway.trusted_proxies, nets(&["10.0.0.2/31"]));
+    assert_eq!(
+        c.routes[0].allow_ips,
+        Some(nets(&[
+            "192.0.2.10/32",
+            "198.51.100.7/32",
+            "203.0.113.0/24",
+            "2001:db8:42::/48"
+        ]))
+    );
+    assert_eq!(c.routes[1].allow_ips, Some(nets(&["10.0.0.0/8", "fd00::/8"])));
+    assert_eq!(c.routes[2].allow_ips, None);
+}
+
+/// Every `kdl` block of the feature page is valid once the `staff` set it refers to exists.
+#[test]
+fn allow_ips_doc_snippets_parse() {
+    let doc = read("docs/features/allow-ips.md");
+    let staff = "ip-set \"staff\" { - \"203.0.113.0/24\"; }\n";
+    let blocks: Vec<&str> = doc
+        .split("```kdl\n")
+        .skip(1)
+        .filter_map(|b| b.split("```").next())
+        .collect();
+    assert!(blocks.len() >= 4);
+    for b in blocks {
+        let src = if b.contains("ip-set \"staff\"") {
+            b.to_string()
+        } else {
+            format!("{staff}{b}")
+        };
+        let src = src.replace("psk-env \"PREVIEW_PSK\"", &format!("psk \"{HASH}\""));
+        let src = src.replace("    tls\n", "    tls email=\"ops@example.com\"\n");
+        parse(&src).unwrap_or_else(|e| panic!("{e}\n{src}"));
+    }
+}
+
+const HASH: &str =
+    "$argon2id$v=19$m=19456,t=2,p=1$ftC9LdPXCcZ6MiQpvWUwXA$haZvTFqngv2fUrBLJTBmAw2Ltxdy9HonzbKTkg4bXhI";

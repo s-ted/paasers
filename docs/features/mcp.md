@@ -24,7 +24,7 @@ A built-in MCP server (Streamable HTTP) lets an AI agent investigate from an **I
 | `inspect_incident` | details of an incident from its ID (32 hex, dashes tolerated), with a diagnostic hint |
 | `purge_cache` | purge by `tags`, `host`, `path_prefix` or `all` |
 
-Incident kinds: `upstream_connect`, `upstream_timeout`, `no_healthy_upstream`, `upstream_error`, `rate_limited`, `auth`, `geo_blocked`, `tls_fallback`, `payload_too_large`, `config`.
+Incident kinds: `upstream_connect`, `upstream_timeout`, `no_healthy_upstream`, `upstream_error`, `rate_limited`, `auth`, `geo_blocked`, `ip_blocked`, `tls_fallback`, `payload_too_large`, `config`.
 
 The flight recorder is an in-memory ring buffer (`gateway { flight-recorder capacity=500 }`).
 
