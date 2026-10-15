@@ -44,13 +44,13 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
           cache-key: ${{ matrix.target }}
-      - uses: cargo-bins/cargo-binstall@7bebc2e59eb8820162b7ac8f62a92bfdb2732447 # v1.25.1
+      - uses: cargo-bins/cargo-binstall@3be4ad2b146f3302f92e5956c54fedbb6ae8cccc # v1.25.3
       - run: cargo binstall -y --locked cargo-zigbuild@${{ env.ZIGBUILD_VERSION }}
       - run: scripts/build-release.sh ${{ matrix.target }}
       - name: Memory budget (32 MB RSS)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: scripts/rss.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.target }}
           path: |
