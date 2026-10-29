@@ -36,7 +36,7 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install # from rust-toolchain.toml (version, components, targets)
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: release-${{ matrix.target }}
           save-if: ${{ inputs.save-cache }}
@@ -44,13 +44,13 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
           cache-key: ${{ matrix.target }}
-      - uses: cargo-bins/cargo-binstall@7bebc2e59eb8820162b7ac8f62a92bfdb2732447 # v1.25.1
+      - uses: cargo-bins/cargo-binstall@81df5c23b0dc775b009efdfc9895c5965b7a4e40 # v1.26.1
       - run: cargo binstall -y --locked cargo-zigbuild@${{ env.ZIGBUILD_VERSION }}
       - run: scripts/build-release.sh ${{ matrix.target }}
       - name: Memory budget (32 MB RSS)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: scripts/rss.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.target }}
           path: |
